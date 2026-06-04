@@ -30,7 +30,7 @@ CXXFLAGS += -DSCTL_QUAD_T=__float128 # Enable quadruple precision
 CXXFLAGS += -lblas -DSCTL_HAVE_BLAS # use BLAS
 CXXFLAGS += -llapack -DSCTL_HAVE_LAPACK # use LAPACK
 #CXXFLAGS += -qmkl -DSCTL_HAVE_BLAS -DSCTL_HAVE_LAPACK -DSCTL_HAVE_FFTW3_MKL # use MKL BLAS, LAPACK and FFTW (Intel compiler)
-#CXXFLAGS += -lmkl_intel_lp64 -lmkl_sequential -lmkl_core -lpthread -DSCTL_HAVE_BLAS -DSCTL_HAVE_LAPACK # use MKL BLAS and LAPACK (non-Intel compiler)
+CXXFLAGS += -lmkl_intel_lp64 -lmkl_sequential -lmkl_core -lpthread -DSCTL_HAVE_BLAS -DSCTL_HAVE_LAPACK # use MKL BLAS and LAPACK (non-Intel compiler)
 
 CXXFLAGS += -lfftw3_omp -DSCTL_FFTW_THREADS
 CXXFLAGS += -lfftw3 -DSCTL_HAVE_FFTW
@@ -72,11 +72,14 @@ TARGET_BIN = \
        $(BINDIR)/test-vec \
        $(BINDIR)/test-quad-elem \
        $(BINDIR)/test-scratch-pool \
-       $(BINDIR)/test-scratch-pool-perf
+       $(BINDIR)/test-scratch-pool-perf \
+	   $(BINDIR)/test-quad-element
 
 .PHONY: all test clean
 
 all : $(TARGET_BIN)
+
+quad : $(BINDIR)/test-quad-element
 
 $(BINDIR)/%: $(OBJDIR)/%.o
 	-@$(MKDIRS) $(dir $@)
