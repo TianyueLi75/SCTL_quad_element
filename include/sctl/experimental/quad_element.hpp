@@ -240,9 +240,37 @@ namespace sctl {
 
       template <class ValueType> static void EvalTensorProduct(Vector<ValueType>& out, const Vector<ValueType>& in, const Matrix<ValueType>& MuT, const Matrix<ValueType>& Mv);
 
-      void GetNearestNode(Vector<Real>& Ystar, Vector<Real>& Ynstar, Long& Y_elem_idx, const Vector<Real>& Xtrg);
+      void GetNearestNode(Vector<Real>& Ystar, Vector<Real>& Ynstar, Long& Y_elem_idx, Real& ustar, Real& vstar, const Vector<Real>& Xtrg);
 
       void BuildDerivativeCache();
+
+      // Derive the Bernstein-ellipse parameter and per-panel Gauss-Legendre order
+      // from the tolerance (shared by the near/self adaptive schemes).
+      static void QuadParams(const Real tol, Real& b_ellipse, Integer& QuadOrder);
+
+      // Accumulate the contribution of a tensor-product quadrature (u_param x
+      // v_param, with parameter-space weights wu (x) wv) on element elem_idx,
+      // against the single (un-shifted) target Xtrg, into M_acc (nnode x
+      // KDIM0*KDIM1_out). normal_trg != nullptr enables target-normal contraction.
+      template <class Kernel> static void IntegrateBlock(Matrix<Real>& M_acc, const QuadElemList<Real>& qel, const Long elem_idx, const Vector<Real>& Xtrg, const Vector<Real>& normal_trg, const Vector<Real>& u_param, const Vector<Real>& wu, const Vector<Real>& v_param, const Vector<Real>& wv, const Kernel& ker);
+
+      // Build a 1D graded Gauss-Legendre rule on [0,1] in direction dir (0:u, 1:v),
+      // refined toward `center`, with the cross-coordinate fixed at `cross`. Panels
+      // grade until the target is admissible (dist >= b_ellipse*panel-extent) or
+      // max_depth is reached. Returns the nodes `param` and parameter-space weights `w`.
+      static void BuildGraded1D(Vector<Real>& param, Vector<Real>& w, const QuadElemList<Real>& qel, const Long elem_idx, const Real center, const Real cross, const Integer dir, const Real b_ellipse, const Vector<Real>& Xtrg, const Vector<Real>& qnds, const Vector<Real>& qwts, const Integer max_depth);
+
+      // 1D quadrature on [0,1] for an integrand with a log singularity at v0 (the
+      // "remaining" direction of the self-interaction reduction). TODO: replace the
+      // interim graded-GL rule with an Alpert trapezoidal log-singular rule.
+      static void LogSingularQuad1D(Vector<Real>& param, Vector<Real>& w, const QuadElemList<Real>& qel, const Long elem_idx, const Real v0, const Real cross_u, const Real b_ellipse, const Vector<Real>& Xtrg, const Vector<Real>& qnds, const Vector<Real>& qwts, const Integer max_depth);
+
+      // Per-target adaptive 2D quadtree near-interaction block (off-surface target).
+      template <class Kernel> static void NearInteracBlock(Matrix<Real>& M_acc, const QuadElemList<Real>& qel, const Long elem_idx, const Vector<Real>& Xtrg, const Vector<Real>& normal_trg, const Kernel& ker, const Real tol);
+
+      // Per-target singular self-interaction block for an on-surface target at
+      // parameter (u0,v0): shared graded refinement in u + 1D log-singular rule in v.
+      template <class Kernel> static void SelfInteracBlock(Matrix<Real>& M_acc, const QuadElemList<Real>& qel, const Long elem_idx, const Real u0, const Real v0, const Vector<Real>& Xtrg, const Vector<Real>& normal_trg, const Kernel& ker, const Real tol);
 
       Long nelem = 0;
       Integer order = 0;

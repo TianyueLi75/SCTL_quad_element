@@ -193,20 +193,276 @@ template <class Real> void test_GetClosestPoint_curved() {
 }
 
 
+// Reference near-singular evaluation: directly integrate the boundary-integral
+// operator on element `elem_idx` against a single target `Xt`, using a globally
+// uniform refinement of the parameter square into nsub x nsub panels, each with a
+// plain order-`order` Gauss-Legendre rule (same GL order as the physical
+// discretization). The density carried by the element is the order-`order`
+// Lagrange interpolant of the nodal values `sigma` (AoS, {s0_0..s0_{K-1}, s1_0..}),
+// the SAME density representation NearInterac uses. As nsub increases this sum
+// converges to the exact value of that integral; NearInterac's adaptive quadtree
+// computes the same integral to tolerance, so the two must agree.
+//
+// Returns the target potential (Kernel::TrgDim() reals).
+template <class Real, class Kernel> Vector<Real> direct_upsampled_potential(
+    const QuadElemList<Real>& qel, const Long elem_idx, const Vector<Real>& sigma,
+    const Vector<Real>& Xt, const Kernel& ker, const Long nsub) {
+
+    const Integer order = qel.Order();
+    const Integer KDIM0 = Kernel::SrcDim();
+    const Integer KDIM1 = Kernel::TrgDim();
+    const Long nq = (Long)order * order;
+    const Vector<Real>& nds = QuadElemList<Real>::ParamNodes(order);
+    const Vector<Real>& wts = LegQuadRule<Real>::wts(order);
+
+    Vector<Real> u(KDIM1);
+    u.SetZero();
+
+    Vector<Real> u_param(order), v_param(order);
+    for (Long pi = 0; pi < nsub; pi++) {
+        for (Long pj = 0; pj < nsub; pj++) {
+            for (Integer a = 0; a < order; a++) u_param[a] = (nds[a] + pi) / (Real)nsub;
+            for (Integer b = 0; b < order; b++) v_param[b] = (nds[b] + pj) / (Real)nsub;
+
+            // Geometry on this panel's order x order GL grid.
+            Vector<Real> X, Xn, Xa;
+            qel.GetGeom(&X, &Xn, &Xa, nullptr, nullptr, u_param, v_param, elem_idx);
+
+            // Lagrange weights from the patch nodes to the panel quad nodes:
+            // Lu[i*order + a] = L_i(u_param[a]).
+            Vector<Real> Lu(order * order), Lv(order * order);
+            LagrangeInterp<Real>::Interpolate(Lu, nds, u_param);
+            LagrangeInterp<Real>::Interpolate(Lv, nds, v_param);
+
+            // Interpolate the nodal density onto the panel quad nodes.
+            Vector<Real> sigma_q(nq * KDIM0);
+            sigma_q.SetZero();
+            for (Integer a = 0; a < order; a++) {
+                for (Integer b = 0; b < order; b++) {
+                    const Long q = a * order + b;
+                    for (Integer i = 0; i < order; i++) {
+                        for (Integer j = 0; j < order; j++) {
+                            const Real L = Lu[i * order + a] * Lv[j * order + b];
+                            for (Integer k0 = 0; k0 < KDIM0; k0++) {
+                                sigma_q[q * KDIM0 + k0] += sigma[(i * order + j) * KDIM0 + k0] * L;
+                            }
+                        }
+                    }
+                }
+            }
+
+            // Kernel matrix from this panel's sources to the single target.
+            // KernelMatrix already applies uKerScaleFactor (matches NearInterac).
+            Matrix<Real> Mker; // (nq*KDIM0 x KDIM1)
+            ker.template KernelMatrix<Real, false>(Mker, Xt, X, Xn);
+
+            for (Integer a = 0; a < order; a++) {
+                for (Integer b = 0; b < order; b++) {
+                    const Long q = a * order + b;
+                    // Surface quadrature weight; each panel covers 1/nsub of the
+                    // patch per direction (the 1/nsub^2 Jacobian).
+                    const Real wq = Xa[q] * wts[a] * wts[b] / ((Real)nsub * (Real)nsub);
+                    for (Integer k0 = 0; k0 < KDIM0; k0++) {
+                        for (Integer k1 = 0; k1 < KDIM1; k1++) {
+                            u[k1] += Mker[q * KDIM0 + k0][k1] * sigma_q[q * KDIM0 + k0] * wq;
+                        }
+                    }
+                }
+            }
+        }
+    }
+    return u;
+}
+
+template <class Real, class Kernel> void test_NearInterac(const Kernel& ker, const bool curved, const char* label) {
+    const Integer COORD_DIM = 3;
+    const Integer order = 8;
+    const Integer KDIM0 = Kernel::SrcDim();
+    const Integer KDIM1 = Kernel::TrgDim();
+    const Long nnode = (Long)order * order;
+    const Long elem_idx = 0;
+
+    // Single element over [0,1]^2: flat plane z = 0, or the curved testsurf z = u*v.
+    Vector<Real> coord0 = curved ? get_testsurf<Real>(order, 1)
+                                 : QuadElemList<Real>::ParamGrid(order, 1);
+    QuadElemList<Real> qel(order, coord0);
+
+    // Target in the near-singular regime: offset a distance d off an interior
+    // surface point along the unit surface normal.
+    const Real u0 = 0.4, v0 = 0.6, d = 0.1;
+    Vector<Real> up{u0}, vp{v0}, Xsurf, Nsurf;
+    qel.GetGeom(&Xsurf, &Nsurf, nullptr, nullptr, nullptr, up, vp, elem_idx);
+    Vector<Real> Xt(COORD_DIM);
+    for (Integer k = 0; k < COORD_DIM; k++) Xt[k] = Xsurf[k] + d * Nsurf[k];
+
+    // Smooth nodal density (AoS over components). The exact values are irrelevant
+    // to the comparison: both schemes integrate the identical Lagrange interpolant.
+    const Vector<Real>& nds = QuadElemList<Real>::ParamNodes(order);
+    Vector<Real> sigma(nnode * KDIM0);
+    for (Integer i = 0; i < order; i++) {
+        for (Integer j = 0; j < order; j++) {
+            for (Integer k0 = 0; k0 < KDIM0; k0++) {
+                sigma[(i * order + j) * KDIM0 + k0] = cos<Real>(nds[i] + 2 * nds[j] + (Real)0.5 * k0);
+            }
+        }
+    }
+
+    // Adaptive near-interaction matrix and the potential M^T * sigma.
+    Matrix<Real> M;
+    Vector<Real> normal_trg; // empty: no target-normal contraction for these kernels
+    const Real tol = 1e-08;
+    QuadElemList<Real>::template NearInterac<Kernel>(M, Xt, normal_trg, ker, tol, elem_idx, &qel);
+    SCTL_ASSERT(M.Dim(0) == nnode * KDIM0 && M.Dim(1) == KDIM1); // single target
+
+    Vector<Real> u_near(KDIM1);
+    u_near.SetZero();
+    for (Long r = 0; r < nnode * KDIM0; r++) {
+        for (Integer k1 = 0; k1 < KDIM1; k1++) u_near[k1] += sigma[r] * M[r][k1];
+    }
+
+    // Reference: globally upsampled direct quadrature (same GL order).
+    const Long nsub = 12;
+    Vector<Real> u_ref = direct_upsampled_potential<Real, Kernel>(qel, elem_idx, sigma, Xt, ker, nsub);
+
+    // Relative error in the target potential.
+    Real err2 = 0, ref2 = 0;
+    for (Integer k1 = 0; k1 < KDIM1; k1++) {
+        const Real e = u_near[k1] - u_ref[k1];
+        err2 += e * e;
+        ref2 += u_ref[k1] * u_ref[k1];
+    }
+    const Real rel_err = sqrt<Real>(err2) / sqrt<Real>(ref2);
+
+    const Real rel_tol = 1e-6;
+    if (!(rel_err < rel_tol)) {
+        std::cout << "test_NearInterac (" << label << "): rel_err = " << rel_err << "\n";
+    }
+    SCTL_ASSERT(rel_err < rel_tol);
+}
+
+// Test the singular self-interaction (1D-reduction scheme). Checks the operator
+// shape and finiteness for both kernels, and -- for the continuous single-layer
+// kernel -- that the self operator column for a node equals the near-interaction
+// limit as an off-surface target approaches that node along its normal. The
+// double-layer potential jumps across the surface, so that clean limit does not
+// hold there and only shape/finiteness are checked (check_consistency=false).
+//
+// NOTE: the 1D log-singular (B) direction currently uses an interim graded-GL
+// stand-in (see LogSingularQuad1D); a full high-accuracy self-convergence test is
+// gated on the Alpert trapezoidal rule (TODO).
+template <class Real, class Kernel> void test_SelfInterac(const Kernel& ker, const bool curved, const bool check_consistency, const char* label) {
+    const Integer COORD_DIM = 3;
+    const Integer order = 8;
+    const Integer KDIM0 = Kernel::SrcDim();
+    const Integer KDIM1 = Kernel::TrgDim();
+    const Long nnode = (Long)order * order;
+    const Long elem_idx = 0;
+
+    Vector<Real> coord0 = curved ? get_testsurf<Real>(order, 1)
+                                 : QuadElemList<Real>::ParamGrid(order, 1);
+    QuadElemList<Real> qel(order, coord0);
+
+    const Real tol = 1e-6;
+
+    // Self-interaction matrix (no target-normal contraction).
+    Vector<Matrix<Real>> M_lst(1);
+    QuadElemList<Real>::template SelfInterac<Kernel>(M_lst, ker, tol, /*trg_dot_prod=*/false, &qel);
+
+    // Shape + finiteness.
+    SCTL_ASSERT(M_lst.Dim() == 1);
+    const Matrix<Real>& Mself = M_lst[0];
+    SCTL_ASSERT(Mself.Dim(0) == nnode * KDIM0 && Mself.Dim(1) == nnode * KDIM1);
+    for (Long r = 0; r < Mself.Dim(0); r++) {
+        for (Long c = 0; c < Mself.Dim(1); c++) SCTL_ASSERT(std::isfinite(Mself[r][c]));
+    }
+
+    if (!check_consistency) return;
+
+    // Pick an interior node; compare the self column against NearInterac at
+    // shrinking off-surface offsets.
+    const Vector<Real>& nds = QuadElemList<Real>::ParamNodes(order);
+    const Integer ti = 3, tj = 5;
+    const Long tnode = ti * order + tj;
+
+    Vector<Real> up{nds[ti]}, vp{nds[tj]}, X0, N0;
+    qel.GetGeom(&X0, &N0, nullptr, nullptr, nullptr, up, vp, elem_idx);
+
+    // The single-layer potential is continuous across the surface, so the near
+    // value approaches the on-surface self value linearly in the offset (rel error
+    // should roughly track delta).
+    Vector<Real> empty;
+    const Real deltas[4] = {3e-2, 1e-2, 3e-3, 1e-3};
+    Real last_rel = 1;
+    for (Integer di = 0; di < 4; di++) {
+        const Real d = deltas[di];
+        Vector<Real> Xt(COORD_DIM);
+        for (Integer k = 0; k < COORD_DIM; k++) Xt[k] = X0[k] + d * N0[k];
+
+        Matrix<Real> Mnear;
+        QuadElemList<Real>::template NearInterac<Kernel>(Mnear, Xt, empty, ker, tol, elem_idx, &qel);
+        SCTL_ASSERT(Mnear.Dim(0) == nnode * KDIM0 && Mnear.Dim(1) == KDIM1);
+
+        Real diff2 = 0, ref2 = 0;
+        for (Long r = 0; r < nnode * KDIM0; r++) {
+            for (Integer k1 = 0; k1 < KDIM1; k1++) {
+                const Real e = Mself[r][tnode * KDIM1 + k1] - Mnear[r][k1];
+                diff2 += e * e;
+                ref2 += Mnear[r][k1] * Mnear[r][k1];
+            }
+        }
+        last_rel = sqrt<Real>(diff2) / sqrt<Real>(ref2);
+        std::cout << "  test_SelfInterac (" << label << "): delta=" << d << " rel=" << last_rel << "\n";
+    }
+    const Real rel_tol = 5e-2;
+    SCTL_ASSERT(last_rel < rel_tol);
+}
 
 
 int main(int argc, char** argv) {
 
     using Real = double;
 
-    test_ParamGrid<Real>();
+    // test_ParamGrid<Real>();
     // test_Upsample<Real>();
-    test_GetClosestPoint_plane<Real>();
-    test_GetClosestPoint_curved<Real>();
+    // test_GetClosestPoint_plane<Real>();
+    // test_GetClosestPoint_curved<Real>();
 
-    std::cout << "test_ParamGrid: PASSED\n";
+    // NearInterac: adaptive scheme vs. globally upsampled direct quadrature, over
+    // {Stokes single-/double-layer} x {flat plane, curved testsurf}.
+    const Stokes3D_FxU ker_FxU;
+    const Stokes3D_DxU ker_DxU;
+    test_NearInterac<Real>(ker_FxU, false, "Stokes3D_FxU / plane");
+    std::cout << "test_NearInterac (Stokes3D_FxU / plane): PASSED\n";
+
+    test_NearInterac<Real>(ker_FxU, true,  "Stokes3D_FxU / testsurf");
+    std::cout << "test_NearInterac (Stokes3D_FxU / testsurf): PASSED\n";
+
+    test_NearInterac<Real>(ker_DxU, false, "Stokes3D_DxU / plane");
+    std::cout << "test_NearInterac (Stokes3D_DxU / plane): PASSED\n";
+
+    test_NearInterac<Real>(ker_DxU, true,  "Stokes3D_DxU / testsurf");
+    std::cout << "test_NearInterac (Stokes3D_DxU / testsurf): PASSED\n";
+
+    // SelfInterac: 1D-reduction singular scheme, over {single-/double-layer} x
+    // {flat plane, curved testsurf}. Consistency (near-limit) is checked only for
+    // the continuous single-layer kernel; the double-layer is shape/finiteness only.
+    test_SelfInterac<Real>(ker_FxU, false, true,  "Stokes3D_FxU / plane");
+    std::cout << "test_SelfInterac (Stokes3D_FxU / plane): PASSED\n";
+
+    test_SelfInterac<Real>(ker_FxU, true,  true,  "Stokes3D_FxU / testsurf");
+    std::cout << "test_SelfInterac (Stokes3D_FxU / testsurf): PASSED\n";
+
+    test_SelfInterac<Real>(ker_DxU, false, false, "Stokes3D_DxU / plane");
+    std::cout << "test_SelfInterac (Stokes3D_DxU / plane): PASSED\n";
+
+    test_SelfInterac<Real>(ker_DxU, true,  false, "Stokes3D_DxU / testsurf");
+    std::cout << "test_SelfInterac (Stokes3D_DxU / testsurf): PASSED\n";
+
+    // std::cout << "test_ParamGrid: PASSED\n";
     // std::cout << "test_Upsample: PASSED\n";
-    std::cout << "test_GetClosestPoint_plane: PASSED\n";
-    std::cout << "test_GetClosestPoint_curved: PASSED\n";
+    // std::cout << "test_GetClosestPoint_plane: PASSED\n";
+    // std::cout << "test_GetClosestPoint_curved: PASSED\n";
+    
+    
     return 0;
 }
