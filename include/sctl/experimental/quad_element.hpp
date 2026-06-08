@@ -260,10 +260,11 @@ namespace sctl {
       // max_depth is reached. Returns the nodes `param` and parameter-space weights `w`.
       static void BuildGraded1D(Vector<Real>& param, Vector<Real>& w, const QuadElemList<Real>& qel, const Long elem_idx, const Real center, const Real cross, const Integer dir, const Real b_ellipse, const Vector<Real>& Xtrg, const Vector<Real>& qnds, const Vector<Real>& qwts, const Integer max_depth);
 
-      // 1D quadrature on [0,1] for an integrand with a log singularity at v0 (the
-      // "remaining" direction of the self-interaction reduction). TODO: replace the
-      // interim graded-GL rule with an Alpert trapezoidal log-singular rule.
-      static void LogSingularQuad1D(Vector<Real>& param, Vector<Real>& w, const QuadElemList<Real>& qel, const Long elem_idx, const Real v0, const Real cross_u, const Real b_ellipse, const Vector<Real>& Xtrg, const Vector<Real>& qnds, const Vector<Real>& qwts, const Integer max_depth);
+      // Alpert hybrid Gauss-trapezoidal quadrature on [0,1] for an integrand with a
+      // log singularity at the interior point v0 (the "remaining" direction of the
+      // self-interaction reduction). `order` is the requested correction order
+      // (snapped to a supported Alpert log order). Correction tables: alpert_quadr.cpp.
+      static void LogSingularQuad1D(Vector<Real>& param, Vector<Real>& w, const Real v0, const Integer order);
 
       // Per-target adaptive 2D quadtree near-interaction block (off-surface target).
       template <class Kernel> static void NearInteracBlock(Matrix<Real>& M_acc, const QuadElemList<Real>& qel, const Long elem_idx, const Vector<Real>& Xtrg, const Vector<Real>& normal_trg, const Kernel& ker, const Real tol);

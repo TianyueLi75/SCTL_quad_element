@@ -12,6 +12,7 @@
 
 #include <sctl.hpp>
 #include "sctl/experimental/quad_element.hpp"
+#include "sctl/experimental/alpert_quadr.cpp"
 
 namespace sctl {
 
@@ -586,13 +587,56 @@ namespace sctl {
     }
   }
 
-  template <class Real> void QuadElemList<Real>::LogSingularQuad1D(Vector<Real>& param, Vector<Real>& w, const QuadElemList<Real>& qel, const Long elem_idx, const Real v0, const Real cross_u, const Real b_ellipse, const Vector<Real>& Xtrg, const Vector<Real>& qnds, const Vector<Real>& qwts, const Integer max_depth) {
-    // TODO: replace this interim graded-Gauss-Legendre rule with an Alpert
-    // trapezoidal rule for the 1D log-singular integral at v0. The graded-GL
-    // stand-in lets the full self-interaction path run and be tested; it converges
-    // for the weakly-singular on-surface integrand but is not the intended
-    // high-accuracy singular quadrature.
-    BuildGraded1D(param, w, qel, elem_idx, v0, cross_u, /*dir=*/1, b_ellipse, Xtrg, qnds, qwts, max_depth);
+  template <class Real> void QuadElemList<Real>::LogSingularQuad1D(Vector<Real>& param, Vector<Real>& w, const Real v0, const Integer order) {
+    // Alpert hybrid Gauss-trapezoidal quadrature on [0,1] for an integrand with a
+    // log singularity at the interior point v0. The interval is split at v0 into
+    // [0,v0] and [v0,1]; on each sub-interval a uniform trapezoidal grid is corrected
+    // with Alpert's log endpoint rule at the v0 side and a smooth endpoint rule at
+    // the outer side (0 or 1). Endpoint-correction tables come from alpert_quadr.cpp.
+
+    // Snap to a supported Alpert log order (cf. QuadLogExtraPtNodes).
+    static const int log_orders[] = {2, 3, 4, 5, 6, 8, 10, 12, 14, 16};
+    int ord = log_orders[0];
+    for (int o : log_orders) { ord = o; if (o >= order) break; }
+
+    std::vector<double> px, pw;
+
+    // Assemble the corrected rule on [a,b]; corr == 2 -> log endpoint, else smooth.
+    auto add_interval = [&](double a, double b, int corra, int corrb) {
+      const ExtraPtResult L = (corra == 2 ? QuadLogExtraPtNodes((double)ord) : QuadSmoothExtraPtNodes((double)ord));
+      const ExtraPtResult R = (corrb == 2 ? QuadLogExtraPtNodes((double)ord) : QuadSmoothExtraPtNodes((double)ord));
+      const int skipL = L.NodesToSkip, skipR = R.NodesToSkip;
+
+      // Uniform grid with ~2*ord intervals, but enough to host both corrections.
+      const int N = std::max(skipL + skipR + 2, 2 * ord);
+      const int N1 = N - 1;
+      const double h = (b - a) / N1;
+
+      // Regular trapezoidal nodes, dropping the skipped nodes nearest each endpoint
+      // (both endpoints are corrected here, so every kept node has full weight h).
+      for (int i = skipL; i <= N1 - skipR; ++i) {
+        px.push_back(a + i * h);
+        pw.push_back(h);
+      }
+      // Left endpoint correction nodes (measured from a).
+      for (size_t i = 0; i < L.ExtraNodes.size(); ++i) {
+        px.push_back(a + L.ExtraNodes[i] * h);
+        pw.push_back(L.ExtraWeights[i] * h);
+      }
+      // Right endpoint correction nodes (measured from b).
+      for (size_t i = 0; i < R.ExtraNodes.size(); ++i) {
+        px.push_back(b - R.ExtraNodes[i] * h);
+        pw.push_back(R.ExtraWeights[i] * h);
+      }
+    };
+
+    add_interval(0.0, (double)v0, /*smooth*/ 1, /*log*/ 2);
+    add_interval((double)v0, 1.0, /*log*/ 2, /*smooth*/ 1);
+
+    const Long N = (Long)px.size();
+    param.ReInit(N);
+    w.ReInit(N);
+    for (Long i = 0; i < N; ++i) { param[i] = (Real)px[i]; w[i] = (Real)pw[i]; }
   }
 
   template <class Real> template <class Kernel> void QuadElemList<Real>::NearInteracBlock(Matrix<Real>& M_acc, const QuadElemList<Real>& qel, const Long elem_idx, const Vector<Real>& Xtrg, const Vector<Real>& normal_trg, const Kernel& ker, const Real tol) {
@@ -689,9 +733,10 @@ namespace sctl {
     Vector<Real> u_param, wu;
     BuildGraded1D(u_param, wu, qel, elem_idx, u0, v0, /*dir=*/0, b_ellipse, Xtrg, qnds, qwts, max_depth);
 
-    // Direction B (v): 1D log-singular rule at v0 (TODO Alpert; interim graded-GL).
+    // Direction B (v): Alpert 1D log-singular rule at v0, with correction order
+    // matched to the per-panel GL quadrature order.
     Vector<Real> v_param, wv;
-    LogSingularQuad1D(v_param, wv, qel, elem_idx, v0, u0, b_ellipse, Xtrg, qnds, qwts, max_depth);
+    LogSingularQuad1D(v_param, wv, v0, QuadOrder);
 
     M_acc.ReInit(nnode, KDIM0*KDIM1_out);
     M_acc.SetZero();

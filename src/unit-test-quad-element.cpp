@@ -347,9 +347,10 @@ template <class Real, class Kernel> void test_NearInterac(const Kernel& ker, con
 // double-layer potential jumps across the surface, so that clean limit does not
 // hold there and only shape/finiteness are checked (check_consistency=false).
 //
-// NOTE: the 1D log-singular (B) direction currently uses an interim graded-GL
-// stand-in (see LogSingularQuad1D); a full high-accuracy self-convergence test is
-// gated on the Alpert trapezoidal rule (TODO).
+// NOTE: this consistency metric is dominated by the physical O(delta) gap between
+// the off-surface near value and the on-surface self value, so it validates that
+// the (Alpert log-singular) self operator matches the near-field limit but is not
+// sensitive to the self-quadrature order itself.
 template <class Real, class Kernel> void test_SelfInterac(const Kernel& ker, const bool curved, const bool check_consistency, const char* label) {
     const Integer COORD_DIM = 3;
     const Integer order = 8;
