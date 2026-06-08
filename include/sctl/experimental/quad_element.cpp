@@ -696,27 +696,26 @@ namespace sctl {
     return LegQuadRule<Real>::nds(Order);
   }
 
-  // template <class Real> const Vector<Real>& QuadElemList<Real>::ParamGrid(const Integer Order, const Integer Nelem_perside) {
-  //   const Vector<Real> nodes = ParamNodes(Order);
+  template <class Real> const Vector<Real>& QuadElemList<Real>::ParamGrid(const Integer Order, const Integer Nelem_perside) {
+    const Vector<Real> nodes = ParamNodes(Order);
 
-  //   Vector<Real> x_param(Order * Nelem_perside);
-  //   for (int pind=0; pind < Nelem_perside; pind ++) {
-  //       for (int nind=0; nind < Order; nind ++) {
-  //           x_param[pind * Order + nind] = (nodes[nind] + pind) / Nelem_perside; // TODO check
-  //       }
-  //   }
-  //   Vector<Real> coord0(x_param.Dim() * x_param.Dim() * COORD_DIM);
-  //   for (int xind=0; xind < x_param.Dim(); xind ++) {
-  //       for (int yind=0; yind < x_param.Dim(); yind ++) {
-  //           const Long idx = xind * x_param.Dim() * COORD_DIM + yind * COORD_DIM;
-  //           coord0[idx + 0] = x_param[xind];
-  //           coord0[idx + 1] = x_param[yind];
-  //           coord0[idx + 2] = 0.; // TODO: allow input fsurf as function handle
-  //           // coord0[idx + 2] = fsurf(x_param[xind], y_param[yind]);
-  //       }
-  //   }
-  //   return coord0;
-  // }
+    Vector<Real> x_param(Order * Nelem_perside);
+    for (int pind=0; pind < Nelem_perside; pind ++) {
+        for (int nind=0; nind < Order; nind ++) {
+            x_param[pind * Order + nind] = (nodes[nind] + pind) / Nelem_perside; // TODO check
+        }
+    }
+    static Vector<Real> coord0(x_param.Dim() * x_param.Dim() * COORD_DIM);
+    for (int xind=0; xind < x_param.Dim(); xind ++) {
+        for (int yind=0; yind < x_param.Dim(); yind ++) {
+            const Long idx = xind * x_param.Dim() * COORD_DIM + yind * COORD_DIM;
+            coord0[idx + 0] = x_param[xind];
+            coord0[idx + 1] = x_param[yind];
+            coord0[idx + 2] = 0.; 
+        }
+    }
+    return coord0;
+  }
 
   template <class Real> void QuadElemList<Real>::Write(const std::string& fname, const Comm& comm) const {
     auto allgather = [&comm](Vector<Real>& v_out, const Vector<Real>& v_in) {

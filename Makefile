@@ -27,8 +27,8 @@ CXXFLAGS += -DSCTL_QUAD_T=__float128 # Enable quadruple precision
 
 #CXXFLAGS += -DSCTL_HAVE_MPI #use MPI
 
-CXXFLAGS += -lblas -DSCTL_HAVE_BLAS # use BLAS
-CXXFLAGS += -llapack -DSCTL_HAVE_LAPACK # use LAPACK
+# CXXFLAGS += -lblas -DSCTL_HAVE_BLAS # use BLAS
+# CXXFLAGS += -llapack -DSCTL_HAVE_LAPACK # use LAPACK
 #CXXFLAGS += -qmkl -DSCTL_HAVE_BLAS -DSCTL_HAVE_LAPACK -DSCTL_HAVE_FFTW3_MKL # use MKL BLAS, LAPACK and FFTW (Intel compiler)
 CXXFLAGS += -lmkl_intel_lp64 -lmkl_sequential -lmkl_core -lpthread -DSCTL_HAVE_BLAS -DSCTL_HAVE_LAPACK # use MKL BLAS and LAPACK (non-Intel compiler)
 

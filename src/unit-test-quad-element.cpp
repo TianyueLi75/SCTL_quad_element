@@ -1,5 +1,3 @@
-// TODO: unit testing framework
-
 #include <sctl.hpp>
 #include "sctl/experimental/quad_element.cpp" // template definitions
 
@@ -20,44 +18,44 @@ template <class Real> Vector<Real> get_testsurf(const Integer order, const Integ
     return coord0;
 }
 
-// template <class Real> void test_ParamGrid() {
-//     // Test tensor grid generation directly on ParamGrid (not via get_testsurf,
-//     // whose z = x*y belongs to the test surface and not to ParamGrid).
-//     const Long order = 4;
-//     const Long nelem_perside = 2;
-//     const Long N_per_side = order * nelem_perside; // 8 nodes per side
-//     const Long N_total = N_per_side * N_per_side;  // 64 tensor-grid points
+template <class Real> void test_ParamGrid() {
+    // Test tensor grid generation directly on ParamGrid (not via get_testsurf,
+    // whose z = x*y belongs to the test surface and not to ParamGrid).
+    const Long order = 4;
+    const Long nelem_perside = 2;
+    const Long N_per_side = order * nelem_perside; // 8 nodes per side
+    const Long N_total = N_per_side * N_per_side;  // 64 tensor-grid points
 
-//     Vector<Real> coord0 = QuadElemList<Real>::ParamGrid(order, nelem_perside);
-//     assert(coord0.Dim() == N_total * 3);
+    Vector<Real> coord0 = QuadElemList<Real>::ParamGrid(order, nelem_perside);
+    SCTL_ASSERT(coord0.Dim() == N_total * 3);
 
-//     // Explicit expected 1-D nodes: order-4 Gauss-Legendre nodes on [-1,1] are
-//     // +-0.339981043584856 and +-0.861136311594053. Mapped to [0,1] via (x+1)/2
-//     // and split into 2 equal panels [0,0.5] and [0.5,1], the 8 per-side
-//     // coordinates are:
-//     const Real x_param_exp[8] = {
-//         0.034715922101486804, // panel 0
-//         0.165004739103786020,
-//         0.334995260896213980,
-//         0.465284077898513196,
-//         0.534715922101486804, // panel 1
-//         0.665004739103786020,
-//         0.834995260896213980,
-//         0.965284077898513196
-//     };
+    // Explicit expected 1-D nodes: order-4 Gauss-Legendre nodes on [-1,1] are
+    // +-0.339981043584856 and +-0.861136311594053. Mapped to [0,1] via (x+1)/2
+    // and split into 2 equal panels [0,0.5] and [0.5,1], the 8 per-side
+    // coordinates are:
+    const Real x_param_exp[8] = {
+        0.034715922101486804, // panel 0
+        0.165004739103786020,
+        0.334995260896213980,
+        0.465284077898513196,
+        0.534715922101486804, // panel 1
+        0.665004739103786020,
+        0.834995260896213980,
+        0.965284077898513196
+    };
 
-//     // The grid is the tensor product x_param_exp (x) x_param_exp, AoS order with
-//     // u (xind) the slow index and v (yind) the fast index, with z left at 0.
-//     const Real tol = 1e-12;
-//     for (Long xind = 0; xind < N_per_side; xind++) {
-//         for (Long yind = 0; yind < N_per_side; yind++) {
-//             const Long idx = (xind * N_per_side + yind) * 3;
-//             assert(fabs(coord0[idx + 0] - x_param_exp[xind]) < tol);
-//             assert(fabs(coord0[idx + 1] - x_param_exp[yind]) < tol);
-//             assert(fabs(coord0[idx + 2] - (Real)0) < tol);
-//         }
-//     }
-// }
+    // The grid is the tensor product x_param_exp (x) x_param_exp, AoS order with
+    // u (xind) the slow index and v (yind) the fast index, with z left at 0.
+    const Real tol = 1e-12;
+    for (Long xind = 0; xind < N_per_side; xind++) {
+        for (Long yind = 0; yind < N_per_side; yind++) {
+            const Long idx = (xind * N_per_side + yind) * 3;
+            SCTL_ASSERT(fabs(coord0[idx + 0] - x_param_exp[xind]) < tol);
+            SCTL_ASSERT(fabs(coord0[idx + 1] - x_param_exp[yind]) < tol);
+            SCTL_ASSERT(fabs(coord0[idx + 2] - (Real)0) < tol);
+        }
+    }
+}
 
 // template <class Real> void test_Upsample() {
 //     // Upsample subdivides each input patch (order x order GL nodes) into
@@ -142,21 +140,21 @@ template <class Real> void test_GetClosestPoint_plane() {
 
     // For a target above the plane, the closest point is its (x,y) projection,
     // the distance is |z|, and the surface normal (dX/du x dX/dv) is +z.
-    const Vector<Real> Xtrg = {0.3, 0.7, 0.5};
+    const Vector<Real> Xtrg{0.3, 0.7, 0.5};
     Real ustar, vstar;
     Vector<Real> Xstar, Nstar;
     const Real dist = qel.GetClosestPoint(ustar, vstar, &Xstar, &Nstar, 0, Xtrg);
 
     const Real tol = 1e-9;
-    assert(fabs(ustar - 0.3) < tol);
-    assert(fabs(vstar - 0.7) < tol);
-    assert(fabs(dist  - 0.5) < tol);
-    assert(fabs(Xstar[0] - 0.3) < tol);
-    assert(fabs(Xstar[1] - 0.7) < tol);
-    assert(fabs(Xstar[2] - 0.0) < tol);
-    assert(fabs(Nstar[0]) < tol);
-    assert(fabs(Nstar[1]) < tol);
-    assert(fabs(fabs(Nstar[2]) - 1.0) < tol);
+    SCTL_ASSERT(fabs(ustar - 0.3) < tol);
+    SCTL_ASSERT(fabs(vstar - 0.7) < tol);
+    SCTL_ASSERT(fabs(dist  - 0.5) < tol);
+    SCTL_ASSERT(fabs(Xstar[0] - 0.3) < tol);
+    SCTL_ASSERT(fabs(Xstar[1] - 0.7) < tol);
+    SCTL_ASSERT(fabs(Xstar[2] - 0.0) < tol);
+    SCTL_ASSERT(fabs(Nstar[0]) < tol);
+    SCTL_ASSERT(fabs(Nstar[1]) < tol);
+    SCTL_ASSERT(fabs(fabs(Nstar[2]) - 1.0) < tol);
 }
 
 template <class Real> void test_GetClosestPoint_curved() {
@@ -177,21 +175,21 @@ template <class Real> void test_GetClosestPoint_curved() {
     const Real nrm = sqrt<Real>(nx*nx + ny*ny + nz*nz);
     nx /= nrm; ny /= nrm; nz /= nrm;
 
-    const Vector<Real> Xtrg = {Yx + d*nx, Yy + d*ny, Yz + d*nz};
+    const Vector<Real> Xtrg{Yx + d*nx, Yy + d*ny, Yz + d*nz};
     Real ustar, vstar;
     Vector<Real> Xstar, Nstar;
     const Real dist = qel.GetClosestPoint(ustar, vstar, &Xstar, &Nstar, 0, Xtrg);
 
     const Real tol = 1e-8;
-    assert(fabs(ustar - u0) < tol);
-    assert(fabs(vstar - v0) < tol);
-    assert(fabs(dist  - d ) < tol);
-    assert(fabs(Xstar[0] - Yx) < tol);
-    assert(fabs(Xstar[1] - Yy) < tol);
-    assert(fabs(Xstar[2] - Yz) < tol);
-    assert(fabs(Nstar[0] - nx) < tol);
-    assert(fabs(Nstar[1] - ny) < tol);
-    assert(fabs(Nstar[2] - nz) < tol);
+    SCTL_ASSERT(fabs(ustar - u0) < tol);
+    SCTL_ASSERT(fabs(vstar - v0) < tol);
+    SCTL_ASSERT(fabs(dist  - d ) < tol);
+    SCTL_ASSERT(fabs(Xstar[0] - Yx) < tol);
+    SCTL_ASSERT(fabs(Xstar[1] - Yy) < tol);
+    SCTL_ASSERT(fabs(Xstar[2] - Yz) < tol);
+    SCTL_ASSERT(fabs(Nstar[0] - nx) < tol);
+    SCTL_ASSERT(fabs(Nstar[1] - ny) < tol);
+    SCTL_ASSERT(fabs(Nstar[2] - nz) < tol);
 }
 
 
@@ -201,12 +199,12 @@ int main(int argc, char** argv) {
 
     using Real = double;
 
-    // test_ParamGrid<Real>();
+    test_ParamGrid<Real>();
     // test_Upsample<Real>();
     test_GetClosestPoint_plane<Real>();
     test_GetClosestPoint_curved<Real>();
 
-    // std::cout << "test_ParamGrid: PASSED\n";
+    std::cout << "test_ParamGrid: PASSED\n";
     // std::cout << "test_Upsample: PASSED\n";
     std::cout << "test_GetClosestPoint_plane: PASSED\n";
     std::cout << "test_GetClosestPoint_curved: PASSED\n";
