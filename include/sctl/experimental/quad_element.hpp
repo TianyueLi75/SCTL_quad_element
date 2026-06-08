@@ -107,6 +107,17 @@ namespace sctl {
       static const Vector<Real>& ParamNodes(const Integer Order);
 
       /**
+       * Returns an equidistant tensor grid of a given number of panels of Gauss-Legendre nodes.
+       *
+       * @param[in] Order the polynomial order of the element.
+       * 
+       * @param[in] Nelem_perside the number of panels on each direction, split equally.
+       *
+       * @return the tensor grid of the panel-based discretization nodes in global range [0,1], with third dimension left zero.
+       */
+      static const Vector<Real>& ParamGrid(const Integer Order, const Integer Nelem_perside);
+
+      /**
        * Write elements to file.
        *
        * @param[in] fname the filename.
