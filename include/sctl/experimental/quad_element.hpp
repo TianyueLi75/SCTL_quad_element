@@ -106,16 +106,16 @@ namespace sctl {
        */
       static const Vector<Real>& ParamNodes(const Integer Order);
 
-      /**
-       * Returns an equidistant tensor grid of a given number of panels of Gauss-Legendre nodes.
-       *
-       * @param[in] Order the polynomial order of the element.
-       * 
-       * @param[in] Nelem_perside the number of panels on each direction, split equally.
-       *
-       * @return the tensor grid of the panel-based discretization nodes in global range [0,1], with third dimension left zero.
-       */
-      static const Vector<Real>& ParamGrid(const Integer Order, const Integer Nelem_perside);
+      // /**
+      //  * Returns an equidistant tensor grid of a given number of panels of Gauss-Legendre nodes.
+      //  *
+      //  * @param[in] Order the polynomial order of the element.
+      //  * 
+      //  * @param[in] Nelem_perside the number of panels on each direction, split equally.
+      //  *
+      //  * @return the tensor grid of the panel-based discretization nodes in global range [0,1], with third dimension left zero.
+      //  */
+      // static const Vector<Real>& ParamGrid(const Integer Order, const Integer Nelem_perside);
 
       /**
        * Write elements to file.
@@ -157,27 +157,46 @@ namespace sctl {
        */
       void GetGeom(Vector<Real>* X, Vector<Real>* Xn, Vector<Real>* Xa, Vector<Real>* dX_du, Vector<Real>* dX_dv, const Vector<Real>& u_param, const Vector<Real>& v_param, const Long elem_idx) const;
 
+      // /**
+      //  * Subdivide each input patch (order x order Gauss-Legendre nodes) into
+      //  * nsub_perside x nsub_perside sub-panels of order x order nodes,
+      //  * interpolating the geometry (Xin) and field (Fin) onto the refined nodes
+      //  * and returning the surface-quadrature weights (Wout).
+      //  *
+      //  * @param[out] Xout refined nodal coordinates (AoS, patch-by-patch).
+      //  * 
+      //  * @param[out] Xnout refined nodal normals (AoS, patch-by-patch).
+      //  *
+      //  * @param[out] Fout field interpolated onto the refined nodes.
+      //  *
+      //  * @param[out] Wout surface-quadrature weights at the refined nodes.
+      //  *
+      //  * @param[in] Xin nodal coordinates of the input patch(es) (AoS).
+      //  *
+      //  * @param[in] Fin field values at the input nodes (AoS).
+      //  *
+      //  * @param[in] nsub_perside number of sub-panels per side of each patch.
+      //  */
+      // void Upsample(Vector<Real>& Xout, Vector<Real>& Xnout, Vector<Real>& Fout, Vector<Real>& Wout, const Vector<Real>& Xin, const Vector<Real>& Fin, const Long& nsub_perside);
+
       /**
-       * Subdivide each input patch (order x order Gauss-Legendre nodes) into
-       * nsub_perside x nsub_perside sub-panels of order x order nodes,
-       * interpolating the geometry (Xin) and field (Fin) onto the refined nodes
-       * and returning the surface-quadrature weights (Wout).
+       * Find the closest point (in physical space) on element 'elem_idx' to the
+       * target 'Xtrg', via a brute-force nodal seed followed by a Gauss-Newton
+       * closest-point iteration in the (u,v) parameter square.
        *
-       * @param[out] Xout refined nodal coordinates (AoS, patch-by-patch).
-       * 
-       * @param[out] Xnout refined nodal normals (AoS, patch-by-patch).
+       * @param[out] ustar,vstar parameter coordinates of the closest point in [0,1].
        *
-       * @param[out] Fout field interpolated onto the refined nodes.
+       * @param[out] Xstar (optional) physical coordinates of the closest point.
        *
-       * @param[out] Wout surface-quadrature weights at the refined nodes.
+       * @param[out] Nstar (optional) unit surface normal at the closest point.
        *
-       * @param[in] Xin nodal coordinates of the input patch(es) (AoS).
+       * @param[in] elem_idx index of the element.
        *
-       * @param[in] Fin field values at the input nodes (AoS).
+       * @param[in] Xtrg target coordinates (COORD_DIM reals).
        *
-       * @param[in] nsub_perside number of sub-panels per side of each patch.
+       * @return the physical distance from the target to the closest point.
        */
-      void Upsample(Vector<Real>& Xout, Vector<Real>& Xnout, Vector<Real>& Fout, Vector<Real>& Wout, const Vector<Real>& Xin, const Vector<Real>& Fin, const Long& nsub_perside);
+      Real GetClosestPoint(Real& ustar, Real& vstar, Vector<Real>* Xstar, Vector<Real>* Nstar, const Long elem_idx, const Vector<Real>& Xtrg) const;
 
       /**
        * Get the VTU (Visualization Toolkit for Unstructured grids) data for
@@ -211,8 +230,6 @@ namespace sctl {
       template <class ValueType> static void EvalTensorProduct(Vector<ValueType>& out, const Vector<ValueType>& in, const Matrix<ValueType>& MuT, const Matrix<ValueType>& Mv);
 
       void GetNearestNode(Vector<Real>& Ystar, Vector<Real>& Ynstar, Long& Y_elem_idx, const Vector<Real>& Xtrg);
-
-      void GetCheckPts(Vector<Real>& Cq_lst, const Vector<Real>& Ystar, const Real R, const Real r, const Long Nc, const Vector<Real>& nvec);
 
       void BuildDerivativeCache();
 

@@ -73,13 +73,13 @@ TARGET_BIN = \
        $(BINDIR)/test-quad-elem \
        $(BINDIR)/test-scratch-pool \
        $(BINDIR)/test-scratch-pool-perf \
-	   $(BINDIR)/test-quad-element
+	   $(BINDIR)/unit-test-quad-element
 
 .PHONY: all test clean
 
 all : $(TARGET_BIN)
 
-quad : $(BINDIR)/test-quad-element
+quad : $(BINDIR)/unit-test-quad-element
 
 $(BINDIR)/%: $(OBJDIR)/%.o
 	-@$(MKDIRS) $(dir $@)
