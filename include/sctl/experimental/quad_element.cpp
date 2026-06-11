@@ -276,158 +276,6 @@ namespace sctl {
       }
     }
   }
-
-  // template <class Real> void QuadElemList<Real>::Upsample(Vector<Real>& Xout, Vector<Real>& Xnout, Vector<Real>& Fout, Vector<Real>& Wout, const Vector<Real>& Xin, const Vector<Real>& Fin, const Long& nsub_perside) {
-  //   // Given Xin (the order x order Gauss-Legendre nodal coordinates of one or
-  //   // more patches), subdivide each patch into nsub_perside x
-  //   // nsub_perside sub-panels, each carrying order x order GL nodes. The
-  //   // patch geometry (Xin) and field (Fin) are interpolated onto the refined
-  //   // nodes; Wout returns the surface-quadrature weights at those nodes.
-  //   //
-  //   // Layout: Xin/Xout/Fin/Fout are AoS, ordered patch-by-patch, with the
-  //   // order x order nodes of each patch in (u,v) tensor order (u slow, v fast).
-  //   // Output sub-panels for input patch e are ordered (pi,pj) with pi slow.
-  //   SCTL_ASSERT(nsub_perside > 0);
-
-  //   const Long nnode_per_elem = (Long)order * order;
-  //   SCTL_ASSERT(Xin.Dim() % (nnode_per_elem * COORD_DIM) == 0);
-  //   const Long nelem_in = Xin.Dim() / (nnode_per_elem * COORD_DIM);
-
-  //   Long dof = 0;
-  //   if (Fin.Dim()) {
-  //     SCTL_ASSERT(Fin.Dim() % (nelem_in * nnode_per_elem) == 0);
-  //     dof = Fin.Dim() / (nelem_in * nnode_per_elem);
-  //   }
-
-  //   const Long nsub = (Long)nsub_perside * nsub_perside;
-  //   const Long nelem_out = nelem_in * nsub;
-  //   const Long Nnode_out = nelem_out * nnode_per_elem;
-
-  //   if (Xout.Dim() != Nnode_out * COORD_DIM) Xout.ReInit(Nnode_out * COORD_DIM);
-  //   if (Wout.Dim() != Nnode_out) Wout.ReInit(Nnode_out);
-  //   if (Fout.Dim() != Nnode_out * dof) Fout.ReInit(Nnode_out * dof);
-
-  //   const auto& nodes = ParamNodes(order);
-  //   const auto& node_wts = LegQuadRule<Real>::wts(order);
-
-  //   // Parameter values (in the patch reference square [0,1]^2) of the refined
-  //   // tensor grid, laid out panel-by-panel: sub_param[pind*order + a] places GL
-  //   // node a inside sub-panel pind, which spans [pind, pind+1]/nsub_perside.
-  //   const Long M = (Long)nsub_perside * order;
-  //   Vector<Real> sub_param(M);
-  //   for (Integer pind = 0; pind < nsub_perside; pind++) {
-  //     for (Integer a = 0; a < order; a++) {
-  //       sub_param[pind * order + a] = (nodes[a] + pind) / nsub_perside;
-  //     }
-  //   }
-
-  //   // Interpolation matrices from the patch nodes to the refined tensor grid
-  //   // (same convention as GetGeom: MuT is (M x order), Mv is (order x M)).
-  //   Matrix<Real> MuT(order, M), Mv(order, M);
-  //   {
-  //     Vector<Real> Mu_(order * M, MuT.begin(), false);
-  //     Vector<Real> Mv_(order * M, Mv.begin(), false);
-  //     LagrangeInterp<Real>::Interpolate(Mu_, nodes, sub_param);
-  //     LagrangeInterp<Real>::Interpolate(Mv_, nodes, sub_param);
-  //     MuT = MuT.Transpose();
-  //   }
-
-  //   const Real inv_nps = (Real)1 / (Real)nsub_perside;
-  //   const Long Mgrid = M * M;
-
-  //   for (Long e = 0; e < nelem_in; e++) {
-  //     // Gather this patch's coordinates in SoA layout for EvalTensorProduct.
-  //     Vector<Real> coord_soa(COORD_DIM * nnode_per_elem);
-  //     for (Integer k = 0; k < COORD_DIM; k++) {
-  //       for (Long p = 0; p < nnode_per_elem; p++) {
-  //         coord_soa[k * nnode_per_elem + p] = Xin[(e * nnode_per_elem + p) * COORD_DIM + k];
-  //       }
-  //     }
-
-  //     // Nodal parameter-derivatives of the patch geometry (cf. BuildDerivativeCache).
-  //     Vector<Real> dcoord_du_soa(COORD_DIM * nnode_per_elem);
-  //     Vector<Real> dcoord_dv_soa(COORD_DIM * nnode_per_elem);
-  //     {
-  //       Vector<Real> line_in(order), line_out(order);
-  //       for (Integer k = 0; k < COORD_DIM; k++) {
-  //         const Long cb = k * nnode_per_elem;
-  //         for (Integer j = 0; j < order; j++) {
-  //           for (Integer i = 0; i < order; i++) line_in[i] = coord_soa[cb + i * order + j];
-  //           LagrangeInterp<Real>::Derivative(line_out, line_in, nodes);
-  //           for (Integer i = 0; i < order; i++) dcoord_du_soa[cb + i * order + j] = line_out[i];
-  //         }
-  //         for (Integer i = 0; i < order; i++) {
-  //           for (Integer j = 0; j < order; j++) line_in[j] = coord_soa[cb + i * order + j];
-  //           LagrangeInterp<Real>::Derivative(line_out, line_in, nodes);
-  //           for (Integer j = 0; j < order; j++) dcoord_dv_soa[cb + i * order + j] = line_out[j];
-  //         }
-  //       }
-  //     }
-
-  //     // Interpolate coordinates and parameter-derivatives onto the refined grid.
-  //     Vector<Real> X_soa, dXdu_soa, dXdv_soa;
-  //     EvalTensorProduct(X_soa, coord_soa, MuT, Mv);
-  //     EvalTensorProduct(dXdu_soa, dcoord_du_soa, MuT, Mv);
-  //     EvalTensorProduct(dXdv_soa, dcoord_dv_soa, MuT, Mv);
-
-  //     // Interpolate the field onto the refined grid.
-  //     Vector<Real> F_soa_eval;
-  //     if (dof) {
-  //       Vector<Real> F_soa(dof * nnode_per_elem);
-  //       for (Long p = 0; p < nnode_per_elem; p++) {
-  //         for (Long c = 0; c < dof; c++) {
-  //           F_soa[c * nnode_per_elem + p] = Fin[(e * nnode_per_elem + p) * dof + c];
-  //         }
-  //       }
-  //       EvalTensorProduct(F_soa_eval, F_soa, MuT, Mv);
-  //     }
-
-  //     // Scatter the refined grid into the per-sub-panel output elements.
-  //     for (Integer pi = 0; pi < nsub_perside; pi++) {
-  //       for (Integer pj = 0; pj < nsub_perside; pj++) {
-  //         const Long out_elem = e * nsub + (pi * nsub_perside + pj);
-  //         for (Integer a = 0; a < order; a++) {
-  //           for (Integer b = 0; b < order; b++) {
-  //             const Long iu = (Long)pi * order + a;
-  //             const Long iv = (Long)pj * order + b;
-  //             const Long q = iu * M + iv;              // index into refined SoA grid
-  //             const Long p = (Long)a * order + b;      // node index within sub-panel
-  //             const Long out_node = out_elem * nnode_per_elem + p;
-
-  //             for (Integer k = 0; k < COORD_DIM; k++) {
-  //               Xout[out_node * COORD_DIM + k] = X_soa[k * Mgrid + q];
-  //             }
-  //             for (Long c = 0; c < dof; c++) {
-  //               Fout[out_node * dof + c] = F_soa_eval[c * Mgrid + q];
-  //             }
-
-  //             // Surface element |dX/du x dX/dv| at the refined node.
-  //             const Real du0 = dXdu_soa[0 * Mgrid + q];
-  //             const Real du1 = dXdu_soa[1 * Mgrid + q];
-  //             const Real du2 = dXdu_soa[2 * Mgrid + q];
-  //             const Real dv0 = dXdv_soa[0 * Mgrid + q];
-  //             const Real dv1 = dXdv_soa[1 * Mgrid + q];
-  //             const Real dv2 = dXdv_soa[2 * Mgrid + q];
-  //             const Real n0 = du1 * dv2 - du2 * dv1;
-  //             const Real n1 = du2 * dv0 - du0 * dv2;
-  //             const Real n2 = du0 * dv1 - du1 * dv0;
-  //             const Real area = sqrt<Real>(n0 * n0 + n1 * n1 + n2 * n2);
-  //             const Real inv_area = (area > 0 ? 1 / area : 0);
-
-  //             Xnout[out_node * COORD_DIM + 0] = n0 * inv_area;
-  //             Xnout[out_node * COORD_DIM + 1] = n1 * inv_area;
-  //             Xnout[out_node * COORD_DIM + 2] = n2 * inv_area;
-          
-
-  //             // GL weights are for [0,1]; each sub-panel spans 1/nsub_perside
-  //             // of the patch in each direction, hence the inv_nps^2 Jacobian.
-  //             Wout[out_node] = area * node_wts[a] * node_wts[b] * inv_nps * inv_nps;
-  //           }
-  //         }
-  //       }
-  //     }
-  //   }
-  // }
   
   template <class Real> void QuadElemList<Real>::QuadParams(const Real tol, Real& b_ellipse, Integer& QuadOrder) {
     // Fix the Bernstein ellipse parameter rho and derive the per-panel
@@ -485,8 +333,7 @@ namespace sctl {
       }
     }
 
-    // Kernel matrix from sources to the (shifted) single target; KernelMatrix
-    // already applies uKerScaleFactor, so it is not reapplied.
+    // Kernel matrix from sources to the (shifted) single target;
     Matrix<Real> Mker;
     ker.template KernelMatrix<Real,false>(Mker, Xt0_v, Xsrc, Xnsrc); // (nq*KDIM0 x KDIM1full)
 
@@ -595,11 +442,15 @@ namespace sctl {
     // the outer side (0 or 1). Endpoint-correction tables come from alpert_quadr.cpp.
 
     // Snap to a supported Alpert log order (cf. QuadLogExtraPtNodes).
-    static const int log_orders[] = {2, 3, 4, 5, 6, 8, 10, 12, 14, 16};
-    int ord = log_orders[0];
-    for (int o : log_orders) { ord = o; if (o >= order) break; }
+    // static const int log_orders[] = {2, 3, 4, 5, 6, 8, 10, 12, 14, 16};
+    // int ord = log_orders[0];
+    // for (int o : log_orders) { ord = o; if (o >= order) break; }
+    const int ord = 16;
+    // TODO: carry tolerance into this and correspond to log_orders; 
+    // TODO: add upsampling before and downsample after for more accurate GL-Alpert interpolation?
 
     std::vector<double> px, pw;
+    // TODO: in distributed memory, these should be preallocated and access limited
 
     // Assemble the corrected rule on [a,b]; corr == 2 -> log endpoint, else smooth.
     auto add_interval = [&](double a, double b, int corra, int corrb) {
@@ -643,6 +494,9 @@ namespace sctl {
     // Adaptive 2D quadtree for an off-surface target: refine [0,1]^2 into a graded
     // set of leaf panels, then integrate each leaf with a QuadOrder GL rule via
     // IntegrateBlock. M_acc (nnode x KDIM0*KDIM1_out) is sized/zeroed here.
+
+    // TODO: only binary split right now, see CSBQ for changing step-size.
+
     static constexpr Integer KDIM0 = Kernel::SrcDim();
     static constexpr Integer KDIM1full = Kernel::TrgDim();
     const Integer order = qel.order;
@@ -660,7 +514,7 @@ namespace sctl {
 
     // Closest point (u*,v*) on the element seeds the grading.
     Real ustar, vstar;
-    qel.GetClosestPoint(ustar, vstar, nullptr, nullptr, elem_idx, Xtrg);
+    qel.GetClosestNode(ustar, vstar, nullptr, nullptr, elem_idx, Xtrg);
 
     struct Panel { Real u0, u1, v0, v1; Integer depth; };
     std::vector<Panel> stack, leaves;
@@ -699,8 +553,11 @@ namespace sctl {
       }
     }
 
-    M_acc.ReInit(nnode, KDIM0*KDIM1_out);
-    M_acc.SetZero();
+    // TODO: if distributive memory, will need to grab only relevant entries of M_acc.
+    if (M_acc.Dim(0) != nnode || M_acc.Dim(1) != KDIM0*KDIM1_out) {
+      M_acc.ReInit(nnode, KDIM0*KDIM1_out);
+      M_acc.SetZero();
+    }
 
     Vector<Real> u_param(QuadOrder), v_param(QuadOrder), wu(QuadOrder), wv(QuadOrder);
     for (const Panel& p : leaves) {
@@ -797,13 +654,14 @@ namespace sctl {
     }
   }
 
-  template <class Real> Real QuadElemList<Real>::GetClosestPoint(Real& ustar, Real& vstar, Vector<Real>* Xstar, Vector<Real>* Nstar, const Long elem_idx, const Vector<Real>& Xtrg) const {
+  template <class Real> Real QuadElemList<Real>::GetClosestNode(Real& ustar, Real& vstar, Vector<Real>* Xstar, Vector<Real>* Nstar, const Long elem_idx, const Vector<Real>& Xtrg) const {
     const auto& nds = ParamNodes(order);
     const Long nnode = (Long)order * order;
 
     // Brute-force seed over the order x order nodal grid.
-    Vector<Real> Xnodes;
-    GetGeom(&Xnodes, nullptr, nullptr, nullptr, nullptr, nds, nds, elem_idx);
+    // TODO: binary search among each direction.
+    Vector<Real> Xnodes, Xnnodes;
+    GetGeom(&Xnodes, &Xnnodes, nullptr, nullptr, nullptr, nds, nds, elem_idx);
     Long seed = 0;
     Real best = -1;
     StaticArray<Real,COORD_DIM> bbox_min, bbox_max;
@@ -822,86 +680,10 @@ namespace sctl {
     ustar = nds[seed/order];
     vstar = nds[seed%order];
 
-    // If the target coincides (to tolerance) with a node, return that node exactly
-    // and skip Gauss-Newton. This guarantees the singular near/self schemes are
-    // seeded at the exact on-surface point (Gauss-Newton is a no-op at r=0 but can
-    // drift on flat or near-degenerate metrics). Tolerance is relative to the
-    // element's bounding-box diagonal.
-    {
-      Real diag2 = 0;
-      for (Integer k = 0; k < COORD_DIM; k++) { const Real e = bbox_max[k]-bbox_min[k]; diag2 += e*e; }
-      const Real node_tol2 = diag2 * (machine_eps<Real>() * 256) * (machine_eps<Real>() * 256);
-      if (best <= node_tol2) {
-        Vector<Real> up0{ustar}, vp0{vstar}, Xf0, Nf0;
-        GetGeom(&Xf0, (Nstar ? &Nf0 : nullptr), nullptr, nullptr, nullptr, up0, vp0, elem_idx);
-        if (Xstar) { Xstar->ReInit(COORD_DIM); for (Integer k = 0; k < COORD_DIM; k++) (*Xstar)[k] = Xf0[k]; }
-        if (Nstar) { Nstar->ReInit(COORD_DIM); for (Integer k = 0; k < COORD_DIM; k++) (*Nstar)[k] = Nf0[k]; }
-        return sqrt<Real>(best);
-      }
-    }
+    if (Xstar) { Xstar->ReInit(COORD_DIM); for (Integer k = 0; k < COORD_DIM; k++) (*Xstar)[k] = Xnodes[seed*COORD_DIM+k]; }
+    if (Nstar) { Nstar->ReInit(COORD_DIM); for (Integer k = 0; k < COORD_DIM; k++) (*Nstar)[k] = Xnnodes[seed*COORD_DIM+k]; }
+    return sqrt<Real>(best);
 
-    // Gauss-Newton closest-point iteration: minimize |X(u,v) - Xtrg|^2.
-    Vector<Real> up(1), vp(1), X, dXdu, dXdv;
-    for (Integer iter = 0; iter < 30; iter++) {
-      up[0] = ustar; vp[0] = vstar;
-      GetGeom(&X, nullptr, nullptr, &dXdu, &dXdv, up, vp, elem_idx);
-      Real a = 0, b = 0, c = 0, g0 = 0, g1 = 0; // 2x2 normal equations
-      for (Integer k = 0; k < COORD_DIM; k++) {
-        const Real r = Xtrg[k] - X[k];
-        a += dXdu[k]*dXdu[k];
-        b += dXdu[k]*dXdv[k];
-        c += dXdv[k]*dXdv[k];
-        g0 += dXdu[k]*r;
-        g1 += dXdv[k]*r;
-      }
-      const Real det = a*c - b*b;
-      if (fabs(det) < machine_eps<Real>()) break;
-      const Real du = ( c*g0 - b*g1) / det;
-      const Real dv = (-b*g0 + a*g1) / det;
-      const Real un = std::min<Real>(1, std::max<Real>(0, ustar + du));
-      const Real vn = std::min<Real>(1, std::max<Real>(0, vstar + dv));
-      const Real step = fabs(un - ustar) + fabs(vn - vstar);
-      ustar = un; vstar = vn;
-      if (step < machine_eps<Real>()*8) break;
-    }
-
-    // Final evaluation for the distance and (optional) point/normal.
-    up[0] = ustar; vp[0] = vstar;
-    Vector<Real> Xf, Nf;
-    GetGeom(&Xf, (Nstar ? &Nf : nullptr), nullptr, nullptr, nullptr, up, vp, elem_idx);
-    Real d2 = 0;
-    for (Integer k = 0; k < COORD_DIM; k++) {
-      const Real d = Xf[k] - Xtrg[k];
-      d2 += d*d;
-    }
-    if (Xstar) { Xstar->ReInit(COORD_DIM); for (Integer k = 0; k < COORD_DIM; k++) (*Xstar)[k] = Xf[k]; }
-    if (Nstar) { Nstar->ReInit(COORD_DIM); for (Integer k = 0; k < COORD_DIM; k++) (*Nstar)[k] = Nf[k]; }
-    return sqrt<Real>(d2);
-  }
-
-  template <class Real> void QuadElemList<Real>::GetNearestNode(Vector<Real>& Ystar, Vector<Real>& Ynstar, Long& Y_elem_idx, Real& ustar, Real& vstar, const Vector<Real>& Xtrg) {
-    // Finds the closest surface point Ystar (over all elements) to the target
-    // Xtrg, the element Y_elem_idx it lies on, its parameter coordinates
-    // (ustar,vstar), and the unit normal Ynstar there. When the target coincides
-    // with a node, GetClosestPoint returns that node exactly (dist ~ 0), so callers
-    // can detect on-surface targets and route them to the singular self scheme.
-    Ystar.ReInit(COORD_DIM);
-    Ynstar.ReInit(COORD_DIM);
-    Y_elem_idx = -1;
-    ustar = 0; vstar = 0;
-    Real best = -1;
-    for (Long e = 0; e < nelem; e++) {
-      Real u, v;
-      Vector<Real> Xs, Ns;
-      const Real d = GetClosestPoint(u, v, &Xs, &Ns, e, Xtrg);
-      if (best < 0 || d < best) {
-        best = d;
-        Y_elem_idx = e;
-        ustar = u; vstar = v;
-        Ystar = Xs;
-        Ynstar = Ns;
-      }
-    }
   }
 
   template <class Real> template <class Kernel> void QuadElemList<Real>::NearInterac(Matrix<Real>& M, const Vector<Real>& Xt, const Vector<Real>& normal_trg, const Kernel& ker, Real tol, const Long elem_idx, const ElementListBase<Real>* self) {
@@ -926,39 +708,17 @@ namespace sctl {
     M.SetZero();
     if (!Ntrg) return;
 
-    // On-surface threshold: targets within ~sqrt(eps)*element-size of the surface
-    // are treated as singular. Element size = nodal bounding-box diagonal.
-    Real on_surf_tol;
-    {
-      Vector<Real> Xnodes;
-      qel.GetGeom(&Xnodes, nullptr, nullptr, nullptr, nullptr, ParamNodes(order), ParamNodes(order), elem_idx);
-      StaticArray<Real,COORD_DIM> bmin, bmax;
-      for (Integer k = 0; k < COORD_DIM; k++) { bmin[k] = Xnodes[k]; bmax[k] = Xnodes[k]; }
-      for (Long p = 0; p < nnode; p++) {
-        for (Integer k = 0; k < COORD_DIM; k++) {
-          bmin[k] = std::min<Real>(bmin[k], Xnodes[p*COORD_DIM+k]);
-          bmax[k] = std::max<Real>(bmax[k], Xnodes[p*COORD_DIM+k]);
-        }
-      }
-      Real d2 = 0; for (Integer k = 0; k < COORD_DIM; k++) { const Real e = bmax[k]-bmin[k]; d2 += e*e; }
-      on_surf_tol = sqrt<Real>(d2) * sqrt<Real>(machine_eps<Real>());
-    }
-
     for (Long t = 0; t < Ntrg; t++) {
       Vector<Real> Xtrg(COORD_DIM, (Iterator<Real>)Xt.begin() + t*COORD_DIM, false);
       Vector<Real> ntrg;
       if (trg_dot_prod) ntrg.ReInit(COORD_DIM, (Iterator<Real>)normal_trg.begin() + t*COORD_DIM, false);
 
       // Closest point detects on-surface targets and routes them to the singular block.
-      Real ustar, vstar;
-      const Real dist = qel.GetClosestPoint(ustar, vstar, nullptr, nullptr, elem_idx, Xtrg);
+      // Real ustar, vstar;
+      // const Real dist = qel.GetClosestNode(ustar, vstar, nullptr, nullptr, elem_idx, Xtrg);
 
       Matrix<Real> M_acc;
-      if (dist <= on_surf_tol) {
-        SelfInteracBlock(M_acc, qel, elem_idx, ustar, vstar, Xtrg, ntrg, ker, tol);
-      } else {
-        NearInteracBlock(M_acc, qel, elem_idx, Xtrg, ntrg, ker, tol);
-      }
+      NearInteracBlock(M_acc, qel, elem_idx, Xtrg, ntrg, ker, tol);
 
       // Scatter into M for target t: M[(i*order+j)*KDIM0+k0][t*KDIM1_out+k1].
       for (Integer i = 0; i < order; i++) {
