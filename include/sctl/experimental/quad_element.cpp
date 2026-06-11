@@ -380,6 +380,33 @@ namespace sctl {
     // 1D analogue of the near-interaction quadtree: split [0,1] in direction `dir`,
     // grading toward `center`, until each segment is admissible for the target.
     const Integer QuadOrder = qnds.Dim();
+
+    // Graded segmentation (shared with WriteSelfInteracVTK so the picture matches
+    // the solve), then a QuadOrder GL rule on each leaf segment.
+    Vector<Real> seg; Vector<Long> seg_depth;
+    BuildGraded1DSegments(seg, seg_depth, qel, elem_idx, center, cross, dir, b_ellipse, Xtrg, max_depth);
+    const Long nseg = seg_depth.Dim();
+
+    const Long N = nseg * QuadOrder;
+    param.ReInit(N);
+    w.ReInit(N);
+    Long idx = 0;
+    for (Long si = 0; si < nseg; si++) {
+      const Real a0 = seg[si*2+0], a1 = seg[si*2+1];
+      const Real len = a1 - a0;
+      for (Integer a = 0; a < QuadOrder; a++) {
+        param[idx] = a0 + len*qnds[a];
+        w[idx] = qwts[a]*len;
+        idx++;
+      }
+    }
+  }
+
+  template <class Real> void QuadElemList<Real>::BuildGraded1DSegments(Vector<Real>& seg, Vector<Long>& seg_depth, const QuadElemList<Real>& qel, const Long elem_idx, const Real center, const Real cross, const Integer dir, const Real b_ellipse, const Vector<Real>& Xtrg, const Integer max_depth) {
+    // Split [0,1] in direction `dir` (0:u, 1:v), grading toward `center` with the
+    // cross-coordinate fixed at `cross`, until each segment is admissible for the
+    // target Xtrg. Returns the leaf segments (2 reals {a0,a1} per segment in `seg`)
+    // and their depths. Extracted from BuildGraded1D for reuse by visualization.
     constexpr Long MaxLeaves = 4096;
 
     struct Seg { Real a0, a1; Integer depth; };
@@ -420,17 +447,13 @@ namespace sctl {
       }
     }
 
-    const Long N = (Long)leaves.size() * QuadOrder;
-    param.ReInit(N);
-    w.ReInit(N);
-    Long idx = 0;
-    for (const Seg& s : leaves) {
-      const Real len = s.a1 - s.a0;
-      for (Integer a = 0; a < QuadOrder; a++) {
-        param[idx] = s.a0 + len*qnds[a];
-        w[idx] = qwts[a]*len;
-        idx++;
-      }
+    const Long nseg = (Long)leaves.size();
+    seg.ReInit(nseg*2);
+    seg_depth.ReInit(nseg);
+    for (Long i = 0; i < nseg; i++) {
+      seg[i*2+0] = leaves[i].a0;
+      seg[i*2+1] = leaves[i].a1;
+      seg_depth[i] = leaves[i].depth;
     }
   }
 
@@ -510,6 +533,35 @@ namespace sctl {
     const Vector<Real>& qwts = LegQuadRule<Real>::wts(QuadOrder);
 
     constexpr Integer max_depth = 20;
+
+    // Adaptive 2D quadtree of leaf panels in parameter space (shared with the
+    // visualization helper WriteNearInteracVTK, so the picture matches the solve).
+    Vector<Real> leaf_box; Vector<Long> leaf_depth;
+    BuildNearLeaves(leaf_box, leaf_depth, qel, elem_idx, Xtrg, b_ellipse, max_depth);
+    const Long nleaf = leaf_depth.Dim();
+
+    // TODO: if distributive memory, will need to grab only relevant entries of M_acc.
+    if (M_acc.Dim(0) != nnode || M_acc.Dim(1) != KDIM0*KDIM1_out) {
+      M_acc.ReInit(nnode, KDIM0*KDIM1_out);
+      M_acc.SetZero();
+    }
+
+    Vector<Real> u_param(QuadOrder), v_param(QuadOrder), wu(QuadOrder), wv(QuadOrder);
+    for (Long li = 0; li < nleaf; li++) {
+      const Real pu0 = leaf_box[li*4+0], pu1 = leaf_box[li*4+1];
+      const Real pv0 = leaf_box[li*4+2], pv1 = leaf_box[li*4+3];
+      const Real du = pu1-pu0, dv = pv1-pv0;
+      for (Integer a = 0; a < QuadOrder; a++) { u_param[a] = pu0 + du*qnds[a]; wu[a] = qwts[a]*du; }
+      for (Integer b = 0; b < QuadOrder; b++) { v_param[b] = pv0 + dv*qnds[b]; wv[b] = qwts[b]*dv; }
+      IntegrateBlock(M_acc, qel, elem_idx, Xtrg, normal_trg, u_param, wu, v_param, wv, ker);
+    }
+  }
+
+  template <class Real> void QuadElemList<Real>::BuildNearLeaves(Vector<Real>& leaf_box, Vector<Long>& leaf_depth, const QuadElemList<Real>& qel, const Long elem_idx, const Vector<Real>& Xtrg, const Real b_ellipse, const Integer max_depth) {
+    // Refine [0,1]^2 into a graded set of leaf panels for the off-surface target
+    // Xtrg, grading toward the closest point (u*,v*). Returns the leaf rectangles
+    // (4 reals {u0,u1,v0,v1} per leaf in leaf_box) and their depths. Extracted from
+    // NearInteracBlock so the solve and its visualization share one refinement.
     constexpr Long MaxLeaves = 4096;
 
     // Closest point (u*,v*) on the element seeds the grading.
@@ -553,18 +605,15 @@ namespace sctl {
       }
     }
 
-    // TODO: if distributive memory, will need to grab only relevant entries of M_acc.
-    if (M_acc.Dim(0) != nnode || M_acc.Dim(1) != KDIM0*KDIM1_out) {
-      M_acc.ReInit(nnode, KDIM0*KDIM1_out);
-      M_acc.SetZero();
-    }
-
-    Vector<Real> u_param(QuadOrder), v_param(QuadOrder), wu(QuadOrder), wv(QuadOrder);
-    for (const Panel& p : leaves) {
-      const Real du = p.u1-p.u0, dv = p.v1-p.v0;
-      for (Integer a = 0; a < QuadOrder; a++) { u_param[a] = p.u0 + du*qnds[a]; wu[a] = qwts[a]*du; }
-      for (Integer b = 0; b < QuadOrder; b++) { v_param[b] = p.v0 + dv*qnds[b]; wv[b] = qwts[b]*dv; }
-      IntegrateBlock(M_acc, qel, elem_idx, Xtrg, normal_trg, u_param, wu, v_param, wv, ker);
+    const Long nleaf = (Long)leaves.size();
+    leaf_box.ReInit(nleaf*4);
+    leaf_depth.ReInit(nleaf);
+    for (Long i = 0; i < nleaf; i++) {
+      leaf_box[i*4+0] = leaves[i].u0;
+      leaf_box[i*4+1] = leaves[i].u1;
+      leaf_box[i*4+2] = leaves[i].v0;
+      leaf_box[i*4+3] = leaves[i].v1;
+      leaf_depth[i] = leaves[i].depth;
     }
   }
 
@@ -949,6 +998,125 @@ namespace sctl {
     VTUData vtu_data;
     GetVTUData(vtu_data, F);
     vtu_data.WriteVTK(fname, comm);
+  }
+
+  template <class Real> void QuadElemList<Real>::WriteNearInteracVTK(const std::string& fname, const Long elem_idx, const Vector<Real>& Xtrg, const Real tol, const Comm& comm) const {
+    // Reconstruct the adaptive near-interaction quadtree for the off-surface target
+    // Xtrg (deterministic in elem_idx/Xtrg/tol, kernel-independent), then dump a
+    // single nodal VTK: the per-leaf GL quadrature nodes as VTK_VERTEX points, with
+    // VTK_QUAD connectivity outlining each leaf panel (all colored by depth). The
+    // target is written to a separate file.
+    Real b_ellipse; Integer QuadOrder;
+    QuadParams(tol, b_ellipse, QuadOrder);
+    constexpr Integer max_depth = 20;
+
+    Vector<Real> leaf_box; Vector<Long> leaf_depth;
+    BuildNearLeaves(leaf_box, leaf_depth, *this, elem_idx, Xtrg, b_ellipse, max_depth);
+    const Long nleaf = leaf_depth.Dim();
+
+    VTUData vtu;
+    {
+      const Vector<Real>& qnds = ParamNodes(QuadOrder);
+      Vector<Real> u_param(QuadOrder), v_param(QuadOrder), Xg;
+      for (Long li = 0; li < nleaf; li++) {
+        const Real u0 = leaf_box[li*4+0], u1 = leaf_box[li*4+1];
+        const Real v0 = leaf_box[li*4+2], v1 = leaf_box[li*4+3];
+        const Real du = u1-u0, dv = v1-v0;
+
+        // Per-leaf QuadOrder x QuadOrder GL node grid (u-slow/v-fast), connected
+        // into (QuadOrder-1)^2 VTK_QUAD cells. point_offset resets per leaf so
+        // cells never bridge two leaves.
+        for (Integer a = 0; a < QuadOrder; a++) u_param[a] = u0 + du*qnds[a];
+        for (Integer b = 0; b < QuadOrder; b++) v_param[b] = v0 + dv*qnds[b];
+        GetGeom(&Xg, nullptr, nullptr, nullptr, nullptr, u_param, v_param, elem_idx);
+
+        const Long point_offset = vtu.coord.Dim() / COORD_DIM;
+        for (const auto& x : Xg) vtu.coord.PushBack((VTUData::VTKReal)x);
+
+        for (Long i = 0; i < QuadOrder - 1; i++) {
+          for (Long j = 0; j < QuadOrder - 1; j++) {
+            const Long idx = point_offset + i * QuadOrder + j;
+            vtu.connect.PushBack(idx);
+            vtu.connect.PushBack(idx + 1);
+            vtu.connect.PushBack(idx + QuadOrder + 1);
+            vtu.connect.PushBack(idx + QuadOrder);
+            vtu.offset.PushBack(vtu.connect.Dim());
+            vtu.types.PushBack(9);
+          }
+        }
+
+        // // Panel corners -> VTK_QUAD (2x2 tensor grid u-slow/v-fast, q = a*2 + b).
+        // us[0] = u0; us[1] = u1; vs[0] = v0; vs[1] = v1;
+        // GetGeom(&Xc, nullptr, nullptr, nullptr, nullptr, us, vs, elem_idx);
+        // const Long base = vtu.coord.Dim()/COORD_DIM;
+        // auto push_corner = [&](Integer a, Integer b) {
+        //   const Long q = a*2 + b;
+        //   for (Integer k = 0; k < COORD_DIM; k++) vtu.coord.PushBack((VTUData::VTKReal)Xc[q*COORD_DIM+k]);
+        //   vtu.value.PushBack((VTUData::VTKReal)leaf_depth[li]);
+        // };
+        // push_corner(0,0); push_corner(1,0); push_corner(1,1); push_corner(0,1); // CCW
+        // for (Integer c = 0; c < 4; c++) vtu.connect.PushBack((int32_t)(base + c));
+        // vtu.offset.PushBack(vtu.connect.Dim());
+        // vtu.types.PushBack(9); // VTK_QUAD
+      }
+    }
+    vtu.WriteVTK(fname, comm);
+
+    // Target: a single VTK_VERTEX in its own file.
+    VTUData target;
+    for (Integer k = 0; k < COORD_DIM; k++) target.coord.PushBack((VTUData::VTKReal)Xtrg[k]);
+    target.value.PushBack(0);
+    target.connect.PushBack(0);
+    target.offset.PushBack(target.connect.Dim());
+    target.types.PushBack(1);
+    target.WriteVTK(fname + "-target", comm);
+  }
+
+  template <class Real> void QuadElemList<Real>::WriteSelfInteracVTK(const std::string& fname, const Long elem_idx, const Real u0, const Real v0, const Real tol, const Comm& comm) const {
+    // Reconstruct the on-surface singular self-interaction structure for the target
+    // at parameter (u0,v0): a graded u-refinement crossed with a 1D Alpert
+    // log-singular rule in v. Dumps the tensor-product quadrature nodes as a
+    // VTK_VERTEX point cloud (no panels -- the Alpert v nodes and segment-DFS u
+    // nodes are not monotonically ordered, so they can't be index-meshed). The
+    // singular point is written to a separate file.
+    Real b_ellipse; Integer QuadOrder;
+    QuadParams(tol, b_ellipse, QuadOrder);
+    constexpr Integer max_depth = 20;
+
+    // On-surface target at (u0,v0) seeds the graded u-refinement.
+    Vector<Real> us0(1), vs0(1), Xtrg;
+    us0[0] = u0; vs0[0] = v0;
+    GetGeom(&Xtrg, nullptr, nullptr, nullptr, nullptr, us0, vs0, elem_idx);
+
+    VTUData vtu;
+    {
+      // Quadrature nodes -> VTK_VERTEX: tensor product of the graded-GL u nodes and
+      // the Alpert v nodes (exactly the rule SelfInteracBlock integrates).
+      const Vector<Real>& qnds = ParamNodes(QuadOrder);
+      const Vector<Real>& qwts = LegQuadRule<Real>::wts(QuadOrder);
+      Vector<Real> u_param, wu, v_param, wv, Xg;
+      BuildGraded1D(u_param, wu, *this, elem_idx, u0, v0, /*dir=*/0, b_ellipse, Xtrg, qnds, qwts, max_depth);
+      LogSingularQuad1D(v_param, wv, v0, QuadOrder);
+      GetGeom(&Xg, nullptr, nullptr, nullptr, nullptr, u_param, v_param, elem_idx);
+      const Long nq = u_param.Dim()*v_param.Dim();
+      for (Long q = 0; q < nq; q++) {
+        const Long idx = vtu.coord.Dim()/COORD_DIM;
+        for (Integer k = 0; k < COORD_DIM; k++) vtu.coord.PushBack((VTUData::VTKReal)Xg[q*COORD_DIM+k]);
+        vtu.connect.PushBack((int32_t)idx);
+        vtu.offset.PushBack(vtu.connect.Dim());
+        vtu.types.PushBack(1); // VTK_VERTEX
+      }
+    }
+    vtu.WriteVTK(fname, comm);
+
+    // Singular point: a single VTK_VERTEX at the on-surface target (u0,v0).
+    VTUData singpt;
+    for (Integer k = 0; k < COORD_DIM; k++) singpt.coord.PushBack((VTUData::VTKReal)Xtrg[k]);
+    singpt.value.PushBack(0);
+    singpt.connect.PushBack(0);
+    singpt.offset.PushBack(singpt.connect.Dim());
+    singpt.types.PushBack(1);
+    singpt.WriteVTK(fname + "-singpt", comm);
   }
 
   template <class Real> template <class ValueType> void QuadElemList<Real>::Copy(QuadElemList<ValueType>& elem_lst) const {

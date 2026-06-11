@@ -206,6 +206,45 @@ namespace sctl {
       void WriteVTK(const std::string& fname, const Vector<Real>& F = Vector<Real>(), const Comm& comm = Comm::Self()) const;
 
       /**
+       * Visualize the adaptive near-interaction quadtree for a single off-surface
+       * target. Reconstructs the same refinement the solve uses (deterministic in
+       * elem_idx/Xtrg/tol, kernel-independent) and writes two VTK file sets:
+       * `<fname>` (a single nodal grid: the per-leaf Gauss-Legendre nodes as
+       * VTK_VERTEX points with VTK_QUAD connectivity outlining each leaf panel, all
+       * colored by refinement depth) and `<fname>-target` (the target point).
+       *
+       * @param[in] fname output filename prefix.
+       *
+       * @param[in] elem_idx index of the source element.
+       *
+       * @param[in] Xtrg the off-surface target coordinates (COORD_DIM reals).
+       *
+       * @param[in] tol the accuracy tolerance (match the BIO's SetAccuracy).
+       *
+       * @param[in] comm the communicator.
+       */
+      void WriteNearInteracVTK(const std::string& fname, const Long elem_idx, const Vector<Real>& Xtrg, const Real tol, const Comm& comm = Comm::Self()) const;
+
+      /**
+       * Visualize the on-surface singular self-interaction structure for a target
+       * at parameter (u0,v0): the graded u-refinement crossed with the 1D Alpert
+       * log-singular rule in v. Writes two VTK file sets: `<fname>` (the
+       * tensor-product quadrature nodes as a VTK_VERTEX point cloud) and
+       * `<fname>-singpt` (the singular point).
+       *
+       * @param[in] fname output filename prefix.
+       *
+       * @param[in] elem_idx index of the source element.
+       *
+       * @param[in] u0,v0 parameter coordinates of the on-surface target in [0,1].
+       *
+       * @param[in] tol the accuracy tolerance (match the BIO's SetAccuracy).
+       *
+       * @param[in] comm the communicator.
+       */
+      void WriteSelfInteracVTK(const std::string& fname, const Long elem_idx, const Real u0, const Real v0, const Real tol, const Comm& comm = Comm::Self()) const;
+
+      /**
        * Create a copy of the element-list possibly with a different precision.
        *
        * @param[in] elem_lst input element-list
@@ -240,11 +279,23 @@ namespace sctl {
       // max_depth is reached. Returns the nodes `param` and parameter-space weights `w`.
       static void BuildGraded1D(Vector<Real>& param, Vector<Real>& w, const QuadElemList<Real>& qel, const Long elem_idx, const Real center, const Real cross, const Integer dir, const Real b_ellipse, const Vector<Real>& Xtrg, const Vector<Real>& qnds, const Vector<Real>& qwts, const Integer max_depth);
 
+      // Graded 1D segmentation underlying BuildGraded1D: split [0,1] in direction
+      // dir toward `center` (cross-coordinate fixed at `cross`) until each segment
+      // is admissible for the target Xtrg. Returns leaf segments (2 reals {a0,a1}
+      // per segment in `seg`) and their depths. Shared with WriteSelfInteracVTK.
+      static void BuildGraded1DSegments(Vector<Real>& seg, Vector<Long>& seg_depth, const QuadElemList<Real>& qel, const Long elem_idx, const Real center, const Real cross, const Integer dir, const Real b_ellipse, const Vector<Real>& Xtrg, const Integer max_depth);
+
       // Alpert hybrid Gauss-trapezoidal quadrature on [0,1] for an integrand with a
       // log singularity at the interior point v0 (the "remaining" direction of the
       // self-interaction reduction). `order` is the requested correction order
       // (snapped to a supported Alpert log order). Correction tables: alpert_quadr.cpp.
       static void LogSingularQuad1D(Vector<Real>& param, Vector<Real>& w, const Real v0, const Integer order);
+
+      // Adaptive 2D quadtree underlying NearInteracBlock: refine [0,1]^2 into leaf
+      // panels graded toward the closest point to the off-surface target Xtrg.
+      // Returns leaf rectangles (4 reals {u0,u1,v0,v1} per leaf in `leaf_box`) and
+      // their depths. Shared with WriteNearInteracVTK.
+      static void BuildNearLeaves(Vector<Real>& leaf_box, Vector<Long>& leaf_depth, const QuadElemList<Real>& qel, const Long elem_idx, const Vector<Real>& Xtrg, const Real b_ellipse, const Integer max_depth);
 
       // Per-target adaptive 2D quadtree near-interaction block (off-surface target).
       template <class Kernel> static void NearInteracBlock(Matrix<Real>& M_acc, const QuadElemList<Real>& qel, const Long elem_idx, const Vector<Real>& Xtrg, const Vector<Real>& normal_trg, const Kernel& ker, const Real tol);
