@@ -1019,35 +1019,19 @@ namespace sctl {
     // TODO: binary search among each direction.
     Vector<Real> Xnodes, Xnnodes;
     GetGeom(&Xnodes, &Xnnodes, nullptr, nullptr, nullptr, nds, nds, elem_idx);
-    // Long seed = 0;
-    Long numthreads = omp::omp_get_max_threads();
-    Vector<Long> seeds(numthreads);
-    
+    Long seed = 0;
     Real best = -1;
-    #pragma omp parallel for reduction(min: best)
-    {
-      Long thread_id = omp::omp_get_thread_num();
-      Long seed = 0;
-      #pragma omp for
-      for (Long p = 0; p < nnode; p++) {
-        Real r2 = 0;
-        for (Integer k = 0; k < COORD_DIM; k++) {
-          const Real x = Xnodes[p*COORD_DIM+k];
-          const Real d = x - Xtrg[k];
-          r2 += d*d;
-        }
-        if (best < 0 || r2 < best) { best = r2; seed = p; }
+
+    for (Long p = 0; p < nnode; p++) {
+      Real r2 = 0;
+      for (Integer k = 0; k < COORD_DIM; k++) {
+        const Real x = Xnodes[p*COORD_DIM+k];
+        const Real d = x - Xtrg[k];
+        r2 += d*d;
       }
-      seeds[thread_id] = seed;
+      if (best < 0 || r2 < best) { best = r2; seed = p; }
     }
-    // // A secondary loop to find WHICH thread achieved the global minimum
-    // #pragma omp parallel for
-    // for (int i = 0; i < numthreads; ++i) {
-    //     if (.. == best) {
-    //         bestIndex = i; // Will safely lock onto the exact matching node index
-    //     }
-    // }
-    
+
     ustar = nds[seed/order];
     vstar = nds[seed%order];
 
