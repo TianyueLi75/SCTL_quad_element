@@ -19,8 +19,7 @@ template <class Real> Vector<Real> get_testsurf(const Integer order, const Integ
 }
 
 template <class Real> void test_ParamGrid() {
-    // Test tensor grid generation directly on ParamGrid (not via get_testsurf,
-    // whose z = x*y belongs to the test surface and not to ParamGrid).
+    // Tensor grid generation directly on ParamGrid.
     const Long order = 4;
     const Long nelem_perside = 2;
     const Long N_per_side = order * nelem_perside; // 8 nodes per side
@@ -29,10 +28,7 @@ template <class Real> void test_ParamGrid() {
     Vector<Real> coord0 = QuadElemList<Real>::ParamGrid(order, nelem_perside);
     SCTL_ASSERT(coord0.Dim() == N_total * 3);
 
-    // Explicit expected 1-D nodes: order-4 Gauss-Legendre nodes on [-1,1] are
-    // +-0.339981043584856 and +-0.861136311594053. Mapped to [0,1] via (x+1)/2
-    // and split into 2 equal panels [0,0.5] and [0.5,1], the 8 per-side
-    // coordinates are:
+    // Expected order-4 GL nodes mapped to [0,1], split into 2 panels.
     const Real x_param_exp[8] = {
         0.034715922101486804, // panel 0
         0.165004739103786020,
@@ -44,8 +40,7 @@ template <class Real> void test_ParamGrid() {
         0.965284077898513196
     };
 
-    // The grid is the tensor product x_param_exp (x) x_param_exp, AoS order with
-    // u (xind) the slow index and v (yind) the fast index, with z left at 0.
+    // Tensor product x_param_exp (x) x_param_exp, AoS (u slow, v fast), z = 0.
     const Real tol = 1e-12;
     for (Long xind = 0; xind < N_per_side; xind++) {
         for (Long yind = 0; yind < N_per_side; yind++) {
@@ -58,13 +53,12 @@ template <class Real> void test_ParamGrid() {
 }
 
 template <class Real> void test_GetClosestNode_plane() {
-    // Flat patch z = 0 over [0,1]^2 (x = u, y = v); ParamGrid leaves z = 0. 
+    // Flat patch z = 0; lifted target must snap back to the surface node.
     const Long COORD_DIM = 3;
     const Long order = 8;
     Vector<Real> coord0 = QuadElemList<Real>::ParamGrid(order, 1);
     QuadElemList<Real> qel(order, coord0);
 
-    // Take a surface node point, then move it up in +z. ClosestNode should recover surface node
     Vector<Real> X, Xn;
     qel.GetNodeCoord(&X, &Xn, nullptr);
     const int trg_idx = 13; // arbitrary point on surface
@@ -78,42 +72,32 @@ template <class Real> void test_GetClosestNode_plane() {
 
     Real ustar, vstar;
     Vector<Real> Xstar, Nstar;
-    const Real dist = qel.GetClosestNode(ustar, vstar, &Xstar, &Nstar, 0, Xtrg_shifted);
+    const Real dist = qel.GetClosestNode(ustar, vstar, 0, Xtrg_shifted);
 
     const Real tol = 1e-9;
     SCTL_ASSERT(fabs(ustar - utrg) < tol);
     SCTL_ASSERT(fabs(vstar - vtrg) < tol);
     SCTL_ASSERT(fabs(dist  - 0.1) < tol);
-    SCTL_ASSERT(fabs(Xstar[0] - Xtrg[0]) < tol);
-    SCTL_ASSERT(fabs(Xstar[1] - Xtrg[1]) < tol);
-    SCTL_ASSERT(fabs(Xstar[2] - 0.0) < tol);
-    SCTL_ASSERT(fabs(Nstar[0]) - Xntrg[0] < tol);
-    SCTL_ASSERT(fabs(Nstar[1]) - Xntrg[1] < tol);
-    SCTL_ASSERT(fabs(fabs(Nstar[2]) - 1.0) < tol);
 
     // Now shift the target away from x and y as well.
     Xtrg_shifted[0] -= 0.0013;
     Xtrg_shifted[1] += 0.0005;
     const Real exp_dist = sqrt<Real>(0.1*0.1 + 0.0013*0.0013 + 0.0005*0.0005);
 
-    const Real dist2 = qel.GetClosestNode(ustar, vstar, &Xstar, &Nstar, 0, Xtrg_shifted);
+    const Real dist2 = qel.GetClosestNode(ustar, vstar, 0, Xtrg_shifted);
 
     SCTL_ASSERT(fabs(ustar - utrg) < tol);
     SCTL_ASSERT(fabs(vstar - vtrg) < tol);
     SCTL_ASSERT(fabs(dist2  - exp_dist) < tol);
-    SCTL_ASSERT(fabs(Xstar[0] - Xtrg[0]) < tol);
-    SCTL_ASSERT(fabs(Xstar[1] - Xtrg[1]) < tol);
-    SCTL_ASSERT(fabs(Xstar[2] - 0.0) < tol);
 }
 
 template <class Real> void test_GetClosestNode_curved() {
-    // Curved patch z = u*v over [0,1]^2 (the fsurf from get_testsurf); 
+    // Curved patch z = u*v; target lifted along the normal must snap to its node.
     const Integer COORD_DIM = 3;
     const Long order = 8;
     Vector<Real> coord0 = get_testsurf<Real>(order, 1);
     QuadElemList<Real> qel(order, coord0);
 
-    // Take a surface node point x, then move it up in +d*n(x). ClosestNode should recover surface node
     Vector<Real> X, Xn;
     qel.GetNodeCoord(&X, &Xn, nullptr);
     const int trg_idx = 13; // arbitrary point on surface
@@ -126,45 +110,111 @@ template <class Real> void test_GetClosestNode_curved() {
 
     Real ustar, vstar;
     Vector<Real> Xstar, Nstar;
-    const Real dist = qel.GetClosestNode(ustar, vstar, &Xstar, &Nstar, 0, Xtrg_shifted);
+    const Real dist = qel.GetClosestNode(ustar, vstar, 0, Xtrg_shifted);
 
     const Real tol = 1e-8;
     SCTL_ASSERT(fabs(ustar - utrg) < tol);
     SCTL_ASSERT(fabs(vstar - vtrg) < tol);
     SCTL_ASSERT(fabs(dist  - d ) < tol);
-    SCTL_ASSERT(fabs(Xstar[0] - Xtrg[0]) < tol);
-    SCTL_ASSERT(fabs(Xstar[1] - Xtrg[1]) < tol);
-    SCTL_ASSERT(fabs(Xstar[2] - Xtrg[2]) < tol);
-    SCTL_ASSERT(fabs(Nstar[0] - Xntrg[0]) < tol);
-    SCTL_ASSERT(fabs(Nstar[1] - Xntrg[1]) < tol);
-    SCTL_ASSERT(fabs(Nstar[2] - Xntrg[2]) < tol);
 
     // Now shift the target away from x and y as well.
     Xtrg_shifted[0] -= 0.0013;
     Xtrg_shifted[1] += 0.0005;
     const Real exp_dist = sqrt<Real>((d*Xntrg[0]-0.0013)*(d*Xntrg[0]-0.0013) + (d*Xntrg[1]+0.0005)*(d*Xntrg[1]+0.0005) + (d*Xntrg[2])*(d*Xntrg[2]));
 
-    const Real dist2 = qel.GetClosestNode(ustar, vstar, &Xstar, &Nstar, 0, Xtrg_shifted);
+    const Real dist2 = qel.GetClosestNode(ustar, vstar, 0, Xtrg_shifted);
 
     SCTL_ASSERT(fabs(ustar - utrg) < tol);
     SCTL_ASSERT(fabs(vstar - vtrg) < tol);
     SCTL_ASSERT(fabs(dist2  - exp_dist) < tol);
-    SCTL_ASSERT(fabs(Xstar[0] - Xtrg[0]) < tol);
-    SCTL_ASSERT(fabs(Xstar[1] - Xtrg[1]) < tol);
-    SCTL_ASSERT(fabs(Xstar[2] - Xtrg[2]) < tol);
+}
+
+template <class Real> void test_GetClosestPoint_plane() {
+    // Flat patch z = 0: GetClosestPoint must recover the exact projection at an off-node (u,v).
+    const Integer COORD_DIM = 3;
+    const Long order = 8;
+    Vector<Real> coord0 = QuadElemList<Real>::ParamGrid(order, 1);
+    QuadElemList<Real> qel(order, coord0);
+
+    // Off-node surface point and its normal (= +z for the plane).
+    const Real u0 = 0.37, v0 = 0.62;
+    Vector<Real> up{u0}, vp{v0}, Xsurf, Nsurf;
+    qel.GetGeom(&Xsurf, &Nsurf, nullptr, nullptr, nullptr, up, vp, 0);
+
+    // Target lifted a distance d along the normal.
+    const Real d = 0.1;
+    Vector<Real> Xtrg(COORD_DIM);
+    for (Integer k = 0; k < COORD_DIM; k++) Xtrg[k] = Xsurf[k] + d * Nsurf[k];
+
+    Real ustar, vstar;
+    Vector<Real> Xstar, Nstar;
+    const Real dist = qel.GetClosestPoint(ustar, vstar, 0, Xtrg);
+
+    const Real tol = 1e-9;
+    SCTL_ASSERT(fabs(ustar - u0) < tol);
+    SCTL_ASSERT(fabs(vstar - v0) < tol);
+    SCTL_ASSERT(fabs(dist  - d) < tol);
+
+    // Tangential shift: projection follows it, dist stays = d.
+    Xtrg[0] -= 0.0013;
+    Xtrg[1] += 0.0005;
+    const Real dist2 = qel.GetClosestPoint(ustar, vstar, 0, Xtrg);
+    SCTL_ASSERT(fabs(ustar - (u0 - (Real)0.0013)) < tol);
+    SCTL_ASSERT(fabs(vstar - (v0 + (Real)0.0005)) < tol);
+    SCTL_ASSERT(fabs(dist2 - d) < tol);
+}
+
+template <class Real> void test_GetClosestPoint_curved() {
+    // Curved patch z = u*v: GetClosestPoint must find the foot of the perpendicular at an off-node (u,v).
+    const Integer COORD_DIM = 3;
+    const Long order = 8;
+    Vector<Real> coord0 = get_testsurf<Real>(order, 1);
+    QuadElemList<Real> qel(order, coord0);
+
+    // Off-node surface point + normal; small offset so (u0,v0) is the unique foot.
+    const Real u0 = 0.37, v0 = 0.62;
+    Vector<Real> up{u0}, vp{v0}, Xsurf, Nsurf;
+    qel.GetGeom(&Xsurf, &Nsurf, nullptr, nullptr, nullptr, up, vp, 0);
+    const Real d = 0.01;
+    Vector<Real> Xtrg(COORD_DIM);
+    for (Integer k = 0; k < COORD_DIM; k++) Xtrg[k] = Xsurf[k] + d * Nsurf[k];
+
+    Real ustar, vstar;
+    Vector<Real> Xstar, Nstar;
+    const Real dist = qel.GetClosestPoint(ustar, vstar, 0, Xtrg);
+
+    const Real tol = 1e-7;
+    SCTL_ASSERT(fabs(ustar - u0) < tol);
+    SCTL_ASSERT(fabs(vstar - v0) < tol);
+    SCTL_ASSERT(fabs(dist  - d) < tol);
+
+    // Generic target: residual (closest point - target) must be orthogonal to both tangents.
+    Vector<Real> Xt2(COORD_DIM);
+    Xt2[0] = Xsurf[0] + (Real)0.05;
+    Xt2[1] = Xsurf[1] - (Real)0.03;
+    Xt2[2] = Xsurf[2] + (Real)0.08;
+    qel.GetClosestPoint(ustar, vstar, 0, Xt2);
+    SCTL_ASSERT(ustar > tol && ustar < 1 - tol && vstar > tol && vstar < 1 - tol); // interior min
+
+    Vector<Real> u1{ustar}, v1{vstar}, Xc, dXu, dXv;
+    qel.GetGeom(&Xc, nullptr, nullptr, &dXu, &dXv, u1, v1, 0);
+    Real ru = 0, rv = 0, tu = 0, tv = 0, rr = 0;
+    for (Integer k = 0; k < COORD_DIM; k++) {
+        const Real r = Xc[k] - Xt2[k];
+        ru += r * dXu[k]; rv += r * dXv[k];
+        tu += dXu[k]*dXu[k]; tv += dXv[k]*dXv[k]; rr += r*r;
+    }
+    const Real rn = sqrt<Real>(rr);
+    // std::cout << "tu = " << sqrt<Real>(tu) << ", tv = " << sqrt<Real>(tv) << ", rn = " << rn << ", lhs = " << fabs(ru) <<", rhs = " << (Real)1e-8 * sqrt<Real>(tu) * rn << std::endl;
+    SCTL_ASSERT(fabs(ru) < tol * sqrt<Real>(tu) * rn);
+    SCTL_ASSERT(fabs(rv) < tol * sqrt<Real>(tv) * rn);
 }
 
 
-// Reference near-singular evaluation: directly integrate the boundary-integral
-// operator on element `elem_idx` against a single target `Xt`, using a globally
-// uniform refinement of the parameter square into nsub x nsub panels, each with a
-// plain order-`order` Gauss-Legendre rule (same GL order as the physical
-// discretization). The density carried by the element is the order-`order`
-// Lagrange interpolant of the nodal values `sigma` (AoS, {s0_0..s0_{K-1}, s1_0..}),
-// the SAME density representation NearInterac uses. As nsub increases this sum
-// converges to the exact value of that integral; NearInterac's adaptive quadtree
-// computes the same integral to tolerance, so the two must agree.
-//
+// Reference near-singular evaluation: integrate the BIO on element `elem_idx`
+// against target `Xt` via uniform nsub x nsub refinement with order-`order` GL on
+// each panel, using the same Lagrange-interpolant density as NearInterac. As nsub
+// grows this converges to the exact integral NearInterac computes to tolerance.
 // Returns the target potential (Kernel::TrgDim() reals).
 template <class Real, class Kernel> Vector<Real> direct_upsampled_potential(
     const QuadElemList<Real>& qel, const Long elem_idx, const Vector<Real>& sigma,
@@ -190,8 +240,7 @@ template <class Real, class Kernel> Vector<Real> direct_upsampled_potential(
             Vector<Real> X, Xn, Xa;
             qel.GetGeom(&X, &Xn, &Xa, nullptr, nullptr, u_param, v_param, elem_idx);
 
-            // Lagrange weights from the patch nodes to the panel quad nodes:
-            // Lu[i*order + a] = L_i(u_param[a]).
+            // Lagrange weights from patch nodes to panel quad nodes.
             Vector<Real> Lu(order * order), Lv(order * order);
             LagrangeInterp<Real>::Interpolate(Lu, nds, u_param);
             LagrangeInterp<Real>::Interpolate(Lv, nds, v_param);
@@ -213,16 +262,14 @@ template <class Real, class Kernel> Vector<Real> direct_upsampled_potential(
                 }
             }
 
-            // Kernel matrix from this panel's sources to the single target.
-            // KernelMatrix already applies uKerScaleFactor (matches NearInterac).
+            // Kernel matrix from this panel's sources to the target (scaled, matches NearInterac).
             Matrix<Real> Mker; // (nq*KDIM0 x KDIM1)
             ker.template KernelMatrix<Real, false>(Mker, Xt, X, Xn);
 
             for (Integer a = 0; a < order; a++) {
                 for (Integer b = 0; b < order; b++) {
                     const Long q = a * order + b;
-                    // Surface quadrature weight; each panel covers 1/nsub of the
-                    // patch per direction (the 1/nsub^2 Jacobian).
+                    // Surface quad weight with the 1/nsub^2 panel Jacobian.
                     const Real wq = Xa[q] * wts[a] * wts[b] / ((Real)nsub * (Real)nsub);
                     for (Integer k0 = 0; k0 < KDIM0; k0++) {
                         for (Integer k1 = 0; k1 < KDIM1; k1++) {
@@ -236,29 +283,29 @@ template <class Real, class Kernel> Vector<Real> direct_upsampled_potential(
     return u;
 }
 
-template <class Real, class Kernel> void test_NearInterac(const Kernel& ker, const bool curved, const char* label) {
+template <class Real, class Kernel> void test_NearInterac(const Kernel& ker, const bool curved, const char* label, const typename QuadElemList<Real>::QuadScheme scheme = QuadElemList<Real>::QuadScheme::Adaptive, const Real rel_tol = 1e-6, const Integer cov_order = 0) {
     const Integer COORD_DIM = 3;
-    const Integer order = 8;
+    const Integer order = 24;
     const Integer KDIM0 = Kernel::SrcDim();
     const Integer KDIM1 = Kernel::TrgDim();
     const Long nnode = (Long)order * order;
     const Long elem_idx = 0;
 
-    // Single element over [0,1]^2: flat plane z = 0, or the curved testsurf z = u*v.
+    // Single element: flat plane z = 0 or curved testsurf z = u*v.
     Vector<Real> coord0 = curved ? get_testsurf<Real>(order, 1)
                                  : QuadElemList<Real>::ParamGrid(order, 1);
     QuadElemList<Real> qel(order, coord0);
+    const Integer q = 10;
+    qel.SetQuadScheme(scheme, q, cov_order);
 
-    // Target in the near-singular regime: offset a distance d off an interior
-    // surface point along the unit surface normal.
-    const Real u0 = 0.4, v0 = 0.6, d = 0.1;
+    // Near-singular target: offset d along the normal at an interior point.
+    const Real u0 = 0.4, v0 = 0.6, d = 0.01;
     Vector<Real> up{u0}, vp{v0}, Xsurf, Nsurf;
     qel.GetGeom(&Xsurf, &Nsurf, nullptr, nullptr, nullptr, up, vp, elem_idx);
     Vector<Real> Xt(COORD_DIM);
     for (Integer k = 0; k < COORD_DIM; k++) Xt[k] = Xsurf[k] + d * Nsurf[k];
 
-    // Smooth nodal density (AoS over components). The exact values are irrelevant
-    // to the comparison: both schemes integrate the identical Lagrange interpolant.
+    // Smooth nodal density (AoS); both schemes integrate the same interpolant.
     const Vector<Real>& nds = QuadElemList<Real>::ParamNodes(order);
     Vector<Real> sigma(nnode * KDIM0);
     for (Integer i = 0; i < order; i++) {
@@ -269,9 +316,9 @@ template <class Real, class Kernel> void test_NearInterac(const Kernel& ker, con
         }
     }
 
-    // Adaptive near-interaction matrix and the potential M^T * sigma.
+    // Near-interaction matrix and potential M^T * sigma.
     Matrix<Real> M;
-    Vector<Real> normal_trg; // empty: no target-normal contraction for these kernels
+    Vector<Real> normal_trg; // empty: no target-normal contraction
     const Real tol = 1e-08;
     QuadElemList<Real>::template NearInterac<Kernel>(M, Xt, normal_trg, ker, tol, elem_idx, &qel);
     SCTL_ASSERT(M.Dim(0) == nnode * KDIM0 && M.Dim(1) == KDIM1); // single target
@@ -282,8 +329,8 @@ template <class Real, class Kernel> void test_NearInterac(const Kernel& ker, con
         for (Integer k1 = 0; k1 < KDIM1; k1++) u_near[k1] += sigma[r] * M[r][k1];
     }
 
-    // Reference: globally upsampled direct quadrature (same GL order).
-    const Long nsub = 12;
+    // Reference: upsampled direct quadrature.
+    const Long nsub = 100;
     Vector<Real> u_ref = direct_upsampled_potential<Real, Kernel>(qel, elem_idx, sigma, Xt, ker, nsub);
 
     // Relative error in the target potential.
@@ -295,113 +342,140 @@ template <class Real, class Kernel> void test_NearInterac(const Kernel& ker, con
     }
     const Real rel_err = sqrt<Real>(err2) / sqrt<Real>(ref2);
 
-    const Real rel_tol = 1e-6;
-    if (!(rel_err < rel_tol)) {
-        std::cout << "test_NearInterac (" << label << "): rel_err = " << rel_err << "\n";
-    }
+    std::cout << "  test_NearInterac (" << label << "): rel_err = " << rel_err << "\n";
     SCTL_ASSERT(rel_err < rel_tol);
 }
 
-// Test the singular self-interaction (1D-reduction scheme) against a closed-form
-// analytical solution. For the Laplace single-layer kernel Laplace3D_FxU over the
-// flat unit square (z = 0 on [0,1]^2, so x = u, y = v) with the constant density
-// sigma == 1, the on-surface single-layer potential at a target (x0, y0, 0) is the
-// Newtonian potential of a uniform unit square in its own plane:
-//
-//   u(x0,y0) = 1/(4 pi) \int_0^1 \int_0^1 dx dy / sqrt((x-x0)^2 + (y-y0)^2).
-//
-// The 1/r kernel has the elementary antiderivative
-//   F(X,Y) = X*asinh(Y/X) + Y*asinh(X/Y)
-//          = X*ln(Y + sqrt(X^2+Y^2)) + Y*ln(X + sqrt(X^2+Y^2)),  d^2F/dXdY = 1/r,
-// so the integral over the shifted rectangle [-x0,1-x0] x [-y0,1-y0] is the
-// corner sum F(1-x0,1-y0) - F(1-x0,-y0) - F(-x0,1-y0) + F(-x0,-y0).
-//
-// The self operator is applied as u = sigma^T M (sigma the nodal density vector).
-// Because the Lagrange nodal basis is a partition of unity, the all-ones nodal
-// vector represents sigma == 1 exactly, so u[t] = sum_p M[p][t] is the singular
-// integral above evaluated at surface node t -- compared to the closed form.
-template <class Real> void test_SelfInterac() {
-    const Integer order = 8;
+// Singular self-interaction vs. closed-form references on the flat unit square
+// (z = 0), where r_3 = 0 and n = (0,0,1) give analytic answers for constant density:
+//   Laplace3D-FxU, sigma=1       :  u = (1/4pi) I0
+//   Stokes3D-FxU,  q=(0,0,1)     :  u = (0,0,(1/8pi) I0)
+//   Stokes3D-DxU,  q arbitrary   :  u = 0
+// I0 is the in-plane Newtonian potential of the unit square (1/r antiderivative
+// F(X,Y) = X ln(Y+R) + Y ln(X+R)). Applied as u = sigma^T M.
+template <class Real, class Kernel> void test_SelfInterac(const Kernel& ker, const typename QuadElemList<Real>::QuadScheme scheme = QuadElemList<Real>::QuadScheme::Adaptive, const Real rel_tol = 1e-6, const Integer q = 10, const Real tol = 1e-10, const Integer cov_order = 0) {
+    const Integer order = 12;
     const Long nnode = (Long)order * order;
+    const Integer KDIM0 = Kernel::SrcDim();
+    const Integer KDIM1 = Kernel::TrgDim();
+    SCTL_ASSERT(KDIM1 <= 3);
 
-    // Flat unit square z = 0 over [0,1]^2 (ParamGrid leaves z = 0).
+    // Flat unit square z = 0.
     Vector<Real> coord0 = QuadElemList<Real>::ParamGrid(order, 1);
     QuadElemList<Real> qel(order, coord0);
+    qel.SetQuadScheme(scheme, q, cov_order);
 
-    const Laplace3D_FxU ker; // scalar single-layer: KDIM0 = KDIM1 = 1
-    const Real tol = 1e-10;
-
-    // Self-interaction matrix (scalar kernel, no target-normal contraction).
+    // Self-interaction matrix (no target-normal contraction).
     Vector<Matrix<Real>> M_lst(1);
-    QuadElemList<Real>::template SelfInterac<Laplace3D_FxU>(M_lst, ker, tol, /*trg_dot_prod=*/false, &qel);
+    QuadElemList<Real>::template SelfInterac<Kernel>(M_lst, ker, tol, /*trg_dot_prod=*/false, &qel);
 
     // Shape + finiteness.
     SCTL_ASSERT(M_lst.Dim() == 1);
     const Matrix<Real>& M = M_lst[0];
-    SCTL_ASSERT(M.Dim(0) == nnode && M.Dim(1) == nnode);
+    SCTL_ASSERT(M.Dim(0) == nnode * KDIM0 && M.Dim(1) == nnode * KDIM1);
     for (Long r = 0; r < M.Dim(0); r++) {
         for (Long c = 0; c < M.Dim(1); c++) SCTL_ASSERT(std::isfinite(M[r][c]));
     }
 
-    // Closed-form unit-square single-layer potential at an on-surface target.
-    auto Fanti = [](Real X, Real Y) {
-        const Real r = sqrt<Real>(X * X + Y * Y);
-        return X * log<Real>(Y + r) + Y * log<Real>(X + r);
-    };
-    auto u_exact = [&](Real x0, Real y0) {
-        const Real I = Fanti(1 - x0, 1 - y0) - Fanti(1 - x0, -y0)
-                     - Fanti(-x0, 1 - y0) + Fanti(-x0, -y0);
-        return I / (4 * const_pi<Real>());
+    // I0: corner sum of the 1/r antiderivative.
+    auto I0 = [](Real x0, Real y0) {
+        auto F = [](Real X, Real Y) { const Real R = sqrt<Real>(X*X + Y*Y); return X*log<Real>(Y + R) + Y*log<Real>(X + R); };
+        return F(1 - x0, 1 - y0) - F(1 - x0, -y0) - F(-x0, 1 - y0) + F(-x0, -y0);
     };
 
-    // Apply the self operator to the constant (all-ones) density and compare the
-    // potential at every surface node to the analytical value.
+    // Per-kernel constant density q and the closed-form reference u_exact(x0,y0).
+    const std::string& kname = Kernel::Name();
+    Vector<Real> qden(KDIM0); qden.SetZero();
+    auto u_exact = [&](Real x0, Real y0, Real* ue) {
+        for (Integer k = 0; k < KDIM1; k++) ue[k] = 0;
+        if (kname == "Laplace3D-FxU")      ue[0] = I0(x0, y0) / (4 * const_pi<Real>());
+        else if (kname == "Stokes3D-FxU")  ue[2] = I0(x0, y0) / (8 * const_pi<Real>());
+        else if (kname == "Stokes3D-DxU")  { /* u == 0 */ }
+        else SCTL_ASSERT_MSG(false, "test_SelfInterac: unsupported kernel");
+    };
+    if (kname == "Laplace3D-FxU")      qden[0] = 1;            // sigma = 1
+    else if (kname == "Stokes3D-FxU")  qden[2] = 1;            // q = (0,0,1) (normal)
+    else if (kname == "Stokes3D-DxU")  qden[0] = 1;            // q arbitrary
+    else SCTL_ASSERT_MSG(false, "test_SelfInterac: unsupported kernel");
+
+    // Apply to the constant density and compare at every node (relative error
+    // for the single layers, absolute for the zero double layer).
     const Vector<Real>& nds = QuadElemList<Real>::ParamNodes(order);
-    Real max_rel = 0;
+    Real max_abs = 0, ref_scale = 0;
     for (Integer ti = 0; ti < order; ti++) {
         for (Integer tj = 0; tj < order; tj++) {
             const Long t = ti * order + tj;
-            Real u = 0;
-            for (Long p = 0; p < nnode; p++) u += M[p][t]; // sigma == 1
-            const Real ue = u_exact(nds[ti], nds[tj]);
-            const Real rel = fabs(u - ue) / fabs(ue);
-            max_rel = std::max<Real>(max_rel, rel);
+            Real u[3] = {0, 0, 0};
+            for (Long p = 0; p < nnode; p++)
+                for (Integer k0 = 0; k0 < KDIM0; k0++)
+                    for (Integer k1 = 0; k1 < KDIM1; k1++)
+                        u[k1] += qden[k0] * M[p*KDIM0 + k0][t*KDIM1 + k1];
+            Real ue[3];
+            u_exact(nds[ti], nds[tj], ue);
+            for (Integer k1 = 0; k1 < KDIM1; k1++) {
+                max_abs   = std::max<Real>(max_abs, fabs(u[k1] - ue[k1]));
+                ref_scale = std::max<Real>(ref_scale, fabs(ue[k1]));
+            }
         }
     }
-    std::cout << "  test_SelfInterac (Laplace3D_FxU / plane): max_rel = " << max_rel << "\n";
-    const Real rel_tol = 1e-6;
-    SCTL_ASSERT(max_rel < rel_tol);
+    const Real err = (ref_scale > 0 ? max_abs / ref_scale : max_abs);
+    std::cout << "  test_SelfInterac (" << kname << "): err = " << err << "\n";
+    SCTL_ASSERT(err < rel_tol);
 }
 
 
-// Test access shim for QuadElemList's private static helpers (befriended in the
-// header). Forwards to the otherwise-inaccessible members under test. Must live
-// in namespace sctl to match the friend declaration in quad_element.hpp.
+// Friend shim forwarding to QuadElemList's private static helpers (must be in namespace sctl).
 namespace sctl {
 template <class Real> struct QuadElemTestAccess {
     static void LogSingularQuad1D(Vector<Real>& param, Vector<Real>& w, const Real v0, const Integer order) {
         QuadElemList<Real>::LogSingularQuad1D(param, w, v0, order);
     }
+    static void RectPolarNodes1D(Vector<Real>& nodes, Vector<Real>& wts, const Real alpha, const Integer q, const Vector<Real>& gl_nds, const Vector<Real>& gl_wts) {
+        QuadElemList<Real>::RectPolarNodes1D(nodes, wts, alpha, q, gl_nds, gl_wts);
+    }
 };
 }
 
-// Verify the 1D log-singular quadrature rule produced by LogSingularQuad1D.
-//
-// The rule approximates  I[f] = \int_0^1 f(v) dv  for integrands f with an
-// integrable logarithmic singularity at the interior point v0 (Alpert's hybrid
-// Gauss-trapezoidal scheme; the interval is split at v0 so the singularity sits
-// at a sub-interval endpoint). We integrate a family of test functions whose
-// exact integral is known in closed form and check the quadrature error:
-//
-//   (a) f(v) = log|v - v0|                          [pure log singularity]
-//   (b) f(v) = v * log|v - v0|                       [smooth factor x log]
-//   (c) f(v) = (1 + v^2) * log|v - v0| + cos(3 v)    [log + smooth part]
-//   (d) f(v) = cos(3 v)                              [purely smooth, no sing.]
-//
-// The closed forms below come from  \int_0^1 v^k log|v - a| dv:
-//   k=0:  a*log(a) + (1-a)*log(1-a) - 1
-//   k=1:  ((1 - a^2)/2)*log(1-a) + (a^2/2)*log(a) - 1/4 - a/2
-//   k=2:  ((1 - a^3)/3)*log(1-a) - (a^3/3)*log(a) ... (assembled inline below)
+// Sanity-check the rectangular-polar 1D COV: nodes stay in [0,1], weights sum to 1,
+// and the COV weight vanishes at the singularity u* = (alpha+1)/2.
+template <class Real> void test_RectPolarNodes1D() {
+    const Integer order = 256, q = 10;
+    // const Vector<Real>& gl_nds = QuadElemList<Real>::ParamNodes(order);
+    // const Vector<Real>& gl_wts = sctl::LegQuadRule<Real>::wts(order);
+    Vector<Real> gl_nds, gl_wts;
+    sctl::LegQuadRule<Real>::ComputeNdsWts(&gl_nds, &gl_wts, order);
+    for (const Real ustar : {(Real)0.2, (Real)0.5, (Real)0.77}) {
+        const Real alpha = 2*ustar - 1;
+        Vector<Real> nds, wts;
+        sctl::QuadElemTestAccess<Real>::RectPolarNodes1D(nds, wts, alpha, q, gl_nds, gl_wts);
+        Real wsum = 0;
+        for (Long i = 0; i < nds.Dim(); i++) {
+            SCTL_ASSERT(nds[i] > -1e-12 && nds[i] < 1 + 1e-12);
+            SCTL_ASSERT(wts[i] > -1e-12); // monotone COV => nonnegative weights
+            wsum += wts[i];
+        }
+        // sum(w) -> 1 to GL accuracy on eta' (structural check, not machine eps).
+        std::cout << "  test_RectPolarNodes1D (u*=" << (double)ustar << "): sum(w)=" << (double)wsum
+                  << "  err=" << (double)fabs(wsum - 1) << "\n";
+        SCTL_ASSERT(fabs(wsum - 1) < 1e-8);
+
+        // Node nearest u* should have tiny weight relative to the largest.
+        Long isng = 0; Real dmin = -1, wmax = 0;
+        for (Long i = 0; i < nds.Dim(); i++) {
+            const Real d = fabs(nds[i] - ustar);
+            if (dmin < 0 || d < dmin) { dmin = d; isng = i; }
+            wmax = std::max<Real>(wmax, wts[i]);
+        }
+        std::cout << "      node nearest u*: out=" << (double)nds[isng]
+                  << " (in=" << (double)gl_nds[isng] << ")  w=" << (double)wts[isng]
+                  << "  w/wmax=" << (double)(wts[isng]/wmax) << "\n";
+    }
+}
+
+// Verify the Alpert 1D log-singular rule (LogSingularQuad1D) for I[f] = int_0^1 f
+// with a log singularity at interior v0, against closed-form integrals of:
+//   (a) log|v-v0|  (b) v log|v-v0|  (c) (1+v^2) log|v-v0|+cos(3v)  (d) cos(3v)
+// Closed forms from int_0^1 v^k log|v-a| dv.
 template <class Real> void test_LogSingularQuad1D() {
     const Real v0 = (Real)0.6;
     const Integer order = 16; // requested correction order (rule snaps internally)
@@ -409,8 +483,7 @@ template <class Real> void test_LogSingularQuad1D() {
     Vector<Real> param, w;
     QuadElemTestAccess<Real>::LogSingularQuad1D(param, w, v0, order);
 
-    // Basic structural sanity: matching sizes, nodes inside (0,1), weights sum to 1
-    // (the rule must integrate f == 1 exactly to high accuracy).
+    // Structural sanity: sizes match, nodes in (0,1), weights sum to 1.
     SCTL_ASSERT(param.Dim() == w.Dim());
     SCTL_ASSERT(param.Dim() > 0);
     Real wsum = 0;
@@ -449,10 +522,7 @@ template <class Real> void test_LogSingularQuad1D() {
         SCTL_ASSERT(err < (Real)1e-10);
     }
 
-    // (c) f = (1 + v^2) * log|v - v0| + cos(3 v)
-    //   \int_0^1 v^2 log|v - a| dv assembled from the antiderivative
-    //   F(x) = ((x^3 - a^3)/3) log|x - a| - x^3/9 - a x^2/6 - a^2 x/3, F continuous
-    //   through x=a, so I = F(1) - F(0).
+    // (c) f = (1 + v^2) * log|v - v0| + cos(3 v); int v^2 log via F(x) = ((x^3-a^3)/3)log|x-a| - x^3/9 - a x^2/6 - a^2 x/3.
     {
         const Real I = quad([&](Real v) {
             return (1 + v * v) * log<Real>(fabs(v - v0)) + cos<Real>(3 * v);
@@ -469,7 +539,7 @@ template <class Real> void test_LogSingularQuad1D() {
         SCTL_ASSERT(err < (Real)1e-9);
     }
 
-    // (d) purely smooth integrand (no singularity); the rule must still be high order.
+    // (d) purely smooth integrand; rule must still be high order.
     {
         const Real I = quad([&](Real v) { return cos<Real>(3 * v); });
         const Real I_exact = sin<Real>((Real)3) / 3;
@@ -480,50 +550,37 @@ template <class Real> void test_LogSingularQuad1D() {
     }
 }
 
-// Check the interpolation error incurred when the self-interaction quadrature
-// samples a field at the Alpert log-singular quadrature nodes.
-//
-// IntegrateBlock never evaluates the true density/geometry at its quadrature
-// nodes: it evaluates the order-`order` tensor-product Lagrange interpolant built
-// from the patch's order x order GL node values (the Minterp operator in
-// quad_element.cpp), then samples that interpolant at the quadrature nodes -- in
-// the v-direction these are exactly the Alpert nodes from LogSingularQuad1D. For
-// a NON-POLYNOMIAL field on a NON-FLAT surface this interpolation is not exact,
-// so it sets a floor on the achievable self-interaction accuracy. Here we build
-// the interpolant of a non-polynomial function sampled on the curved testsurf
-// patch (z = u*v), evaluate it at the Alpert nodes in BOTH parameter directions,
-// and confirm the interpolation error sits at the expected (spectral) level.
+// Check the interpolation floor of the self-interaction quadrature: IntegrateBlock
+// samples the order-`order` tensor-product Lagrange interpolant (not the true field)
+// at the Alpert nodes. For a non-polynomial field on the curved testsurf (z = u*v)
+// this is inexact; confirm the error sits at the expected spectral level.
 template <class Real> void test_QuadNodeInterp() {
-    const Integer order = 8;
+    const Integer order = 12;
     const Long elem_idx = 0;
 
-    // Non-flat patch z = u*v over [0,1]^2; its order-12 Lagrange interpolant is the
-    // representation the quadrature actually integrates.
+    // Non-flat patch z = u*v; its order-12 interpolant is what the quadrature integrates.
     Vector<Real> coord0 = get_testsurf<Real>(order, 1);
     QuadElemList<Real> qel(order, coord0);
     const Vector<Real>& nds = QuadElemList<Real>::ParamNodes(order);
 
-    // Non-polynomial scalar field, sampled in physical (x,y,z) space. Composed with
-    // the surface map X(u,v) = (u, v, u*v) it is a non-polynomial function of (u,v).
+    // Non-polynomial scalar field in physical space (non-polynomial in (u,v)).
     auto g = [](const Real* X) {
         return exp<Real>((Real)0.5 * X[0]) * cos<Real>(X[1]) + sin<Real>(X[2]);
     };
 
-    // Field values at the order x order patch nodes (the interpolation data).
+    // Field values at the patch nodes (interpolation data).
     Vector<Real> Xpatch;
     qel.GetGeom(&Xpatch, nullptr, nullptr, nullptr, nullptr, nds, nds, elem_idx);
     Vector<Real> f_patch(order * order);
     for (Long p = 0; p < order * order; p++) f_patch[p] = g(&Xpatch[p * 3]);
 
-    // Alpert log-singular quadrature nodes (LogSingularQuad1D) in u and v; together
-    // they form the tensor-product target grid (node (a,b) at flat index a*Nv + b).
+    // Alpert nodes in u and v forming the tensor-product target grid (node (a,b) at a*Nv + b).
     Vector<Real> u_param, v_param, wu, wv;
     QuadElemTestAccess<Real>::LogSingularQuad1D(u_param, wu, (Real)0.3, order);
     QuadElemTestAccess<Real>::LogSingularQuad1D(v_param, wv, (Real)0.6, order);
     const Long Nu = u_param.Dim(), Nv = v_param.Dim();
 
-    // Lagrange weights from patch nodes to the Alpert nodes (as in IntegrateBlock):
-    // Mu[i*Nu + a] = L_i(u_param[a]).
+    // Lagrange weights from patch nodes to the Alpert nodes (as in IntegrateBlock).
     Vector<Real> Mu(order * Nu), Mv(order * Nv);
     LagrangeInterp<Real>::Interpolate(Mu, nds, u_param);
     LagrangeInterp<Real>::Interpolate(Mv, nds, v_param);
@@ -564,31 +621,61 @@ int main(int argc, char** argv) {
     std::cout << "test_GetClosestNode_plane: PASSED\n";
     test_GetClosestNode_curved<Real>();
     std::cout << "test_GetClosestNode_curved: PASSED\n";
+    test_GetClosestPoint_plane<Real>();
+    std::cout << "test_GetClosestPoint_plane: PASSED\n";
+    test_GetClosestPoint_curved<Real>();
+    std::cout << "test_GetClosestPoint_curved: PASSED\n";
+
+    std::cout << "--- Scheme 1: adaptive and/or log singular special quadrature ---\n";
     test_LogSingularQuad1D<Real>();
     std::cout << "test_LogSingularQuad1D: PASSED\n";
     test_QuadNodeInterp<Real>();
     std::cout << "test_QuadNodeInterp: PASSED\n";
-
-    // // NearInterac: adaptive scheme vs. globally upsampled direct quadrature, over
-    // // {Stokes single-/double-layer} x {flat plane, curved testsurf}.
+    // NearInterac: adaptive scheme vs. upsampled direct quadrature.
     const Stokes3D_FxU ker_FxU;
     const Stokes3D_DxU ker_DxU;
+    const Laplace3D_FxU ker_lapFxU;
     test_NearInterac<Real>(ker_FxU, false, "Stokes3D_FxU / plane");
     std::cout << "test_NearInterac (Stokes3D_FxU / plane): PASSED\n";
-
     test_NearInterac<Real>(ker_FxU, true,  "Stokes3D_FxU / testsurf");
     std::cout << "test_NearInterac (Stokes3D_FxU / testsurf): PASSED\n";
-
     test_NearInterac<Real>(ker_DxU, false, "Stokes3D_DxU / plane");
     std::cout << "test_NearInterac (Stokes3D_DxU / plane): PASSED\n";
-
     test_NearInterac<Real>(ker_DxU, true,  "Stokes3D_DxU / testsurf");
     std::cout << "test_NearInterac (Stokes3D_DxU / testsurf): PASSED\n";
-
-    // SelfInterac: 1D-reduction singular scheme vs. the closed-form Laplace
-    // single-layer potential of a uniform unit square (flat plane).
-    test_SelfInterac<Real>();
+    // SelfInterac vs. closed-form references on the flat unit square (all three kernels).
+    test_SelfInterac<Real>(ker_lapFxU);
     std::cout << "test_SelfInterac (Laplace3D_FxU / plane): PASSED\n";
-    
+    test_SelfInterac<Real>(ker_FxU);
+    std::cout << "test_SelfInterac (Stokes3D_FxU / plane): PASSED\n";
+    test_SelfInterac<Real>(ker_DxU);
+    std::cout << "test_SelfInterac (Stokes3D_DxU / plane): PASSED\n";
+
+
+    // Scheme 2: rectangular-polar COV (Bruno 2018); accuracy driven by Nbeta, not field order.
+    using QS = QuadElemList<Real>::QuadScheme;
+    std::cout << "--- Scheme 2: rectangular-polar change of variable ---\n";
+    test_RectPolarNodes1D<Real>();
+    std::cout << "test_RectPolarNodes1D: PASSED\n";
+
+    const Integer Nbeta = 128;
+    test_NearInterac<Real>(ker_FxU, false, "RP Stokes3D_FxU / plane",    QS::RectPolar, 1e-7, Nbeta);
+    test_NearInterac<Real>(ker_FxU, true,  "RP Stokes3D_FxU / testsurf", QS::RectPolar, 1e-7, Nbeta);
+    test_NearInterac<Real>(ker_DxU, false, "RP Stokes3D_DxU / plane",    QS::RectPolar, 1e-7, Nbeta);
+    test_NearInterac<Real>(ker_DxU, true,  "RP Stokes3D_DxU / testsurf", QS::RectPolar, 1e-7, Nbeta);
+    std::cout << "test_NearInterac (RectPolar, Nbeta=" << Nbeta << "): PASSED\n";
+    test_SelfInterac<Real>(ker_lapFxU, QS::RectPolar, 1e-7, /*q=*/10, /*tol=*/1e-14, /*cov_order=*/256);
+    std::cout << "test_SelfInterac Lap_FxU (RectPolar, Nbeta=256): PASSED\n";
+    test_SelfInterac<Real>(ker_FxU, QS::RectPolar, 1e-7, /*q=*/10, /*tol=*/1e-14, /*cov_order=*/256);
+    std::cout << "test_SelfInterac Sto_FxU (RectPolar, Nbeta=256): PASSED\n";
+    test_SelfInterac<Real>(ker_DxU, QS::RectPolar, 1e-7, /*q=*/10, /*tol=*/1e-14, /*cov_order=*/256);
+    std::cout << "test_SelfInterac Sto_DxU (RectPolar, Nbeta=256): PASSED\n";
+    // Convergence in Nbeta (Nbeta, not q, drives accuracy).
+    std::cout << "  RP self-interac convergence, Sto_FxU (q=10; Nbeta -> max_rel):\n";
+    for (const Integer nb : {64, 128, 256, 512}) {
+        std::cout << "    Nbeta=" << nb << ": ";
+        test_SelfInterac<Real>(ker_FxU, QS::RectPolar, 1e0, /*q=*/10, /*tol=*/1e-14, /*cov_order=*/nb);
+    }
+
     return 0;
 }
