@@ -1,11 +1,13 @@
 #ifndef _SCTL_OMPUTILS_TXX_
 #define _SCTL_OMPUTILS_TXX_
 
-#include <algorithm>          // for lower_bound, sort, merge
+#include <algorithm>          // for lower_bound, sort, merge, copy
+#include <cstring>            // for memcpy
 #include <functional>         // for less
 #include <iterator>           // for iterator_traits
+#include <type_traits>        // for is_trivially_copyable
 
-#include "sctl/common.hpp"        // for Integer, SCTL_UNUSED, sctl
+#include "sctl/common.hpp"        // for Integer, Long, SCTL_UNUSED, sctl
 #include "sctl/ompUtils.hpp"      // for merge_sort, merge, reduce, scan
 #include "sctl/iterator.hpp"      // for Iterator
 #include "sctl/iterator.txx"      // for Ptr2Itr
@@ -13,6 +15,72 @@
 #include "sctl/scratch_pool.txx"
 
 namespace sctl {
+
+namespace omp_par_detail {
+
+  inline Integer PickThreads(Long nbytes, Integer requested) {
+    constexpr Long kFullThreadsBytes      = 2L * 1024L * 1024L;
+    if (requested > 0) return requested;
+    if (requested == 0) return 1;
+    if (nbytes < kFullThreadsBytes) return 1;
+    if (SCTL_IN_PARALLEL()) return 1;
+    return (Integer)SCTL_GET_MAX_THREADS();
+  }
+}
+
+template <class OutputIt, class InputIt> inline void omp_par::memcpy(OutputIt dst, InputIt src, Long n, Integer nthreads) {
+  using T = typename std::iterator_traits<OutputIt>::value_type;
+  using src_value_t = typename std::iterator_traits<InputIt>::value_type;
+  static_assert(std::is_same<T, typename std::remove_cv<src_value_t>::type>::value,
+                "omp_par::memcpy: source and destination value types must match");
+  static_assert(std::is_base_of<std::random_access_iterator_tag, typename std::iterator_traits<OutputIt>::iterator_category>::value &&
+                std::is_base_of<std::random_access_iterator_tag, typename std::iterator_traits<InputIt>::iterator_category>::value,
+                "omp_par::memcpy: iterators must be random-access over contiguous storage");
+  static_assert(std::is_trivially_copyable<T>::value,
+                "omp_par::memcpy: T must be trivially copyable; use omp_par::copy for arbitrary types");
+  if (n <= 0) return;
+  if ((const void*)&dst[0] == (const void*)&src[0]) return;
+
+  const Long nbytes = n * (Long)sizeof(T);
+  const Integer nt = omp_par_detail::PickThreads(nbytes, nthreads);
+
+  if (nt <= 1) {
+    std::memcpy((void*)&dst[0], (const void*)&src[0], (size_t)nbytes);
+    return;
+  }
+
+  #pragma omp parallel num_threads(nt)
+  {
+    const Integer tid = (Integer)SCTL_GET_THREAD_NUM();
+    const Integer p   = (Integer)SCTL_GET_NUM_THREADS();
+    const Long s = ((Long)tid * n) / p;
+    const Long e = ((Long)(tid + 1) * n) / p;
+    if (e > s) std::memcpy((void*)&dst[s], (const void*)&src[s], (size_t)((e - s) * (Long)sizeof(T)));
+  }
+}
+
+template <class InputIt, class OutputIt> inline OutputIt omp_par::copy(InputIt first, InputIt last, OutputIt dst, Integer nthreads) {
+  using val_t  = typename std::iterator_traits<InputIt>::value_type;
+  using diff_t = typename std::iterator_traits<InputIt>::difference_type;
+
+  const diff_t n = last - first;
+  if (n <= 0) return dst;
+
+  const Long nbytes = (Long)n * (Long)sizeof(val_t);
+  const Integer nt = omp_par_detail::PickThreads(nbytes, nthreads);
+
+  if (nt <= 1) return std::copy(first, last, dst);
+
+  #pragma omp parallel num_threads(nt)
+  {
+    const Integer tid = (Integer)SCTL_GET_THREAD_NUM();
+    const Integer p   = (Integer)SCTL_GET_NUM_THREADS();
+    const diff_t s = (diff_t)(((Long)tid * (Long)n) / p);
+    const diff_t e = (diff_t)(((Long)(tid + 1) * (Long)n) / p);
+    if (e > s) std::copy(first + s, first + e, dst + s);
+  }
+  return dst + n;
+}
 
 template <class ConstIter, class Iter, class Int, class StrictWeakOrdering> inline void omp_par::merge(ConstIter A_, ConstIter A_last, ConstIter B_, ConstIter B_last, Iter C_, Int p, StrictWeakOrdering comp) {
   typedef typename std::iterator_traits<Iter>::difference_type _DiffType;
@@ -71,7 +139,7 @@ template <class ConstIter, class Iter, class Int, class StrictWeakOrdering> inli
     _ValType split1 = split[j];
     _DiffType split_size1 = split_size[j];
 
-    j = (std::lower_bound(split_size.begin() + p * n, split_size.begin() + p * n * 2, req_size, std::less<_DiffType>()) - split_size.begin() + p * n) + p * n;
+    j = (std::lower_bound(split_size.begin() + p * n, split_size.begin() + p * n * 2, req_size, std::less<_DiffType>()) - (split_size.begin() + p * n)) + p * n;
     if (j >= 2 * p * n) j = 2 * p * n - 1;
     if (abs(split_size[j] - req_size) < abs(split_size1 - req_size)) {
       split1 = split[j];
@@ -145,6 +213,80 @@ template <class T, class StrictWeakOrdering> inline void omp_par::merge_sort(T A
 template <class T> inline void omp_par::merge_sort(T A, T A_last) {
   typedef typename std::iterator_traits<T>::value_type _ValType;
   omp_par::merge_sort(A, A_last, std::less<_ValType>());
+}
+
+template <class ConstIter, class Iter, class StrictWeakOrdering> inline void omp_par::sample_sort(ConstIter A, Iter B, Long N, StrictWeakOrdering comp) {
+  typedef typename std::iterator_traits<Iter>::value_type _ValType;
+  const Integer nt = SCTL_GET_MAX_THREADS();
+  const bool inplace = (N > 0) && ((const void*)&A[0] == (const void*)&B[0]);  // output aliases input
+
+  if (nt < 2 || N < 64 * nt) {  // too small to parallelize: serial std::sort
+    if (!inplace) for (Long i = 0; i < N; i++) B[i] = A[i];
+    std::sort(B, B + N, comp);
+    return;
+  }
+  if (inplace) {  // can't scatter onto the input: sort into scratch then copy back
+    ScratchBuf<_ValType> tmp_buf(N);
+    omp_par::sample_sort(A, tmp_buf.begin(), N, comp);
+    Iterator<_ValType> tmp = tmp_buf.begin();
+    #pragma omp parallel for schedule(static)
+    for (Long i = 0; i < N; i++) B[i] = tmp[i];
+    return;
+  }
+
+  // Adaptive bucket count: aim for >=~1024 elem/bucket, between nt and 16*nt buckets.
+  const Long nbuck = std::max<Long>(nt, std::min<Long>(16 * nt, N / 1024));
+
+  // 1. Pick nbuck-1 splitters by sorting a regularly-strided oversample.
+  const Long Ns = std::min<Long>(nbuck * 8, N);
+  ScratchBuf<_ValType> samp_buf(Ns), split_buf(nbuck - 1);
+  Iterator<_ValType> samp = samp_buf.begin(), split = split_buf.begin();
+  for (Long i = 0; i < Ns; i++) samp[i] = A[i * N / Ns];
+  std::sort(samp, samp + Ns, comp);
+  for (Long k = 0; k < nbuck - 1; k++) split[k] = samp[(k + 1) * Ns / nbuck];
+  auto bucket = [&split, &comp, nbuck](const _ValType& x) { return std::upper_bound(split, split + (nbuck - 1), x, comp) - split; };
+
+  // 2. Per-thread histogram of bucket counts over contiguous chunks.
+  ScratchBuf<Long> hist_buf(nt * nbuck), chunk_buf(nt + 1);
+  Iterator<Long> hist = hist_buf.begin(), chunk = chunk_buf.begin();
+  for (Long i = 0; i < nt * nbuck; i++) hist[i] = 0;
+  for (Integer t = 0; t <= nt; t++) chunk[t] = (Long)t * N / nt;
+  #pragma omp parallel num_threads(nt)
+  { const Integer t = SCTL_GET_THREAD_NUM();
+    Iterator<Long> h = hist + t * nbuck;
+    for (Long i = chunk[t]; i < chunk[t + 1]; i++) h[bucket(A[i])]++;
+  }
+
+  // 3. Bucket offsets in B and per-(thread,bucket) write positions.
+  ScratchBuf<Long> bdsp_buf(nbuck + 1), tdsp_buf(nt * nbuck);
+  Iterator<Long> bdsp = bdsp_buf.begin(), tdsp = tdsp_buf.begin();
+  bdsp[0] = 0;
+  for (Long b = 0; b < nbuck; b++) {
+    Long o = bdsp[b];
+    for (Integer t = 0; t < nt; t++) { tdsp[t * nbuck + b] = o; o += hist[t * nbuck + b]; }
+    bdsp[b + 1] = o;
+  }
+
+  // 4. Scatter A into B grouped by bucket.
+  #pragma omp parallel num_threads(nt)
+  { const Integer t = SCTL_GET_THREAD_NUM();
+    ScratchBuf<Long> o_buf(nbuck); Iterator<Long> o = o_buf.begin();
+    for (Long b = 0; b < nbuck; b++) o[b] = tdsp[t * nbuck + b];
+    for (Long i = chunk[t]; i < chunk[t + 1]; i++) { Long b = bucket(A[i]); B[o[b]++] = A[i]; }
+  }
+
+  // 5. Sort each bucket independently (dynamic for load balance).
+  #pragma omp parallel for schedule(dynamic) num_threads(nt)
+  for (Long b = 0; b < nbuck; b++) std::sort(B + bdsp[b], B + bdsp[b + 1], comp);
+}
+
+template <class T, class StrictWeakOrdering> inline void omp_par::sample_sort(T A, T A_last, StrictWeakOrdering comp) {
+  omp_par::sample_sort(A, A, A_last - A, comp);  // A==B: in-place path is auto-detected
+}
+
+template <class T> inline void omp_par::sample_sort(T A, T A_last) {
+  typedef typename std::iterator_traits<T>::value_type _ValType;
+  omp_par::sample_sort(A, A_last, std::less<_ValType>());
 }
 
 template <class ConstIter, class Int> typename std::iterator_traits<ConstIter>::value_type omp_par::reduce(ConstIter A, Int cnt) {
