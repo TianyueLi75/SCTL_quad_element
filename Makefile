@@ -18,6 +18,16 @@ else
 	CXXFLAGS += -ldl # dladdr() in stacktrace.h (libc on glibc >=2.34, libdl otherwise)
 endif
 
+# GCC `-march=native` on Sapphire Rapids and newer Intel CPUs emits AVX-512-FP16
+# instructions (e.g. `vmovw`) that pre-2.38 binutils' system assembler can't
+# decode. Disable just the FP16 subset; the rest of -march=native is fine. If a
+# newer binutils is available (e.g. `module load binutils/2.43.1`), the user can
+# remove this flag manually. macOS clang doesn't emit avx512fp16 and doesn't
+# recognise the flag on Apple Silicon — skip there.
+ifneq "$(OS)" "Darwin"
+       CXXFLAGS += -mno-avx512fp16
+endif
+
 CXXFLAGS += -DSCTL_GLOBAL_MEM_BUFF=0 # Global memory buffer size in MB
 
 CXXFLAGS += -DSCTL_PROFILE=25 -DSCTL_VERBOSE # Enable profiling
@@ -68,6 +78,25 @@ INCDIR = ./include
 TARGET_BIN = \
        $(BINDIR)/test \
        $(BINDIR)/test-comm \
+       $(BINDIR)/test-boundary_integral \
+       $(BINDIR)/test-cheb_utils \
+       $(BINDIR)/test-fft-fallback \
+       $(BINDIR)/test-generic-kernel \
+       $(BINDIR)/test-intrin-wrapper \
+       $(BINDIR)/test-iterator \
+       $(BINDIR)/test-kernel_functions \
+       $(BINDIR)/test-lagrange-interp \
+       $(BINDIR)/test-mat_utils \
+       $(BINDIR)/test-math_utils \
+       $(BINDIR)/test-matrix \
+       $(BINDIR)/test-mem_mgr \
+       $(BINDIR)/test-morton \
+       $(BINDIR)/test-ompUtils \
+       $(BINDIR)/test-permutation \
+       $(BINDIR)/test-profile \
+       $(BINDIR)/test-static-array \
+       $(BINDIR)/test-vector \
+       $(BINDIR)/test-vtudata \
        $(BINDIR)/test-fft \
        $(BINDIR)/test-fmm \
        $(BINDIR)/test-gmres \
@@ -105,6 +134,26 @@ $(OBJDIR)/%.o: $(SRCDIR)/%.cpp
 
 test: $(TARGET_BIN)
 	./$(BINDIR)/test
+	./$(BINDIR)/test-comm
+	./$(BINDIR)/test-boundary_integral
+	./$(BINDIR)/test-cheb_utils
+	./$(BINDIR)/test-fft-fallback
+	./$(BINDIR)/test-generic-kernel
+	./$(BINDIR)/test-intrin-wrapper
+	./$(BINDIR)/test-iterator
+	./$(BINDIR)/test-kernel_functions
+	./$(BINDIR)/test-lagrange-interp
+	./$(BINDIR)/test-mat_utils
+	./$(BINDIR)/test-math_utils
+	./$(BINDIR)/test-matrix
+	./$(BINDIR)/test-mem_mgr
+	./$(BINDIR)/test-morton
+	./$(BINDIR)/test-ompUtils
+	./$(BINDIR)/test-permutation
+	./$(BINDIR)/test-profile
+	./$(BINDIR)/test-static-array
+	./$(BINDIR)/test-vector
+	./$(BINDIR)/test-vtudata
 	./$(BINDIR)/test-fft
 	./$(BINDIR)/test-fmm
 	./$(BINDIR)/test-gmres

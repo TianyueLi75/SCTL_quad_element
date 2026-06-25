@@ -11,8 +11,10 @@
                             // runtime VMAs to file-relative offsets for PIE
                             // executables and shared libraries.
 #ifdef __APPLE__
-#include <mach-o/dyld.h>    // for _NSGetExecutablePath
 #include <cstdint>          // for uint32_t
+// Forward-declare rather than #include <mach-o/dyld.h>: that header transitively
+// pulls <mach/message.h>, which fails to compile under g++ on the macOS 26 SDK.
+extern "C" int _NSGetExecutablePath(char* buf, uint32_t* bufsize);
 #endif
 
 #include "sctl/common.hpp"  // for SCTL_UNUSED, sctl
@@ -72,7 +74,7 @@ inline void print_stacktrace(FILE* out = stderr, int skip = 1) {
     // shared libraries (libc, etc.) instead of forcing the main exe.
     Dl_info dl_info{};
     const char* mod_path = nullptr;
-    void* mod_offset = addrlist[i];
+    [[maybe_unused]] void* mod_offset = addrlist[i];
     if (dladdr(addrlist[i], &dl_info) && dl_info.dli_fname) {
       mod_path = dl_info.dli_fname;
       mod_offset = (void*)((char*)addrlist[i] - (char*)dl_info.dli_fbase);
