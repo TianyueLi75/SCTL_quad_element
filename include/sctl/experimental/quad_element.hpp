@@ -17,6 +17,7 @@ namespace sctl {
    */
   template <class Real> class QuadElemList : public ElementListBase<Real> {
       static constexpr Integer COORD_DIM = 3;
+      static constexpr Integer MAX_ADAPTIVE_DEPTH = 30;
 
     public:
 
@@ -64,8 +65,6 @@ namespace sctl {
        * decoupled from field order. 0 falls back to the tolerance-derived order.
        */
       void SetQuadScheme(QuadScheme s, Integer q = 6, Integer cov_order = 0) { scheme_ = s; cov_q_ = q; cov_order_ = cov_order; }
-
-
 
       /**
        * Position and normals of the surface nodal points per element.
@@ -226,6 +225,14 @@ namespace sctl {
       // Shared by BuildDerivativeCache (absolute) and GetGeom (target-shifted).
       static void NodalDerivs(const Vector<Real>& coord_slab, const Integer order, Vector<Real>& du_slab, Vector<Real>& dv_slab);
 
+      // Allocation-free single-point geometry evaluator: writes position X[COORD_DIM]
+      // (target-centered by `origin` when non-null) and, when the pointers are non-null,
+      // the tangents dXu/dXv[COORD_DIM] at parameter (u,v) on elem_idx. Builds the
+      // order-length Lagrange bases on the stack and contracts against the cached nodal
+      // coords -- no Matrix alloc / Transpose, unlike GetGeom. Used by the closest-point
+      // search where it is called many times per target.
+      void EvalPoint(Real* X, Real* dXu, Real* dXv, const Real u, const Real v, const Long elem_idx, const Vector<Real>* origin) const;
+
       // Cached 1D nodal differentiation matrix D (order x order) on the GL nodes,
       // D[i][a] = L_i'(node_a); D . LuV turns a value-interp operator into a deriv one.
       static const Matrix<Real>& DiffMat(const Integer order);
@@ -233,13 +240,14 @@ namespace sctl {
 
       // 1D value + derivative interpolation from order GL nodes to `param`:
       // M[i][a] = L_i(param[a]) (order x N), dM = DiffMat<order> . M.
-      template <Integer order> static void BuildInterp1D(Matrix<Real>& M, Matrix<Real>& dM, const Vector<Real>& param);
+      template <Integer order> static void BuildInterp1D(Matrix<Real>& M, Matrix<Real>& dM, Matrix<Real>& MT, Matrix<Real>& dMT, const Vector<Real>& param);
 
       // 1D quadrature rule (param, w) + value/derivative interp operators (M, dM = order x N).
-      struct NodeRuleData { Vector<Real> param, w; Matrix<Real> M, dM; };
-      // Preloaded Alpert log-singular v-rule for self-interaction at v0=ParamNodes(order)[tj];
-      // geometry/tolerance-independent, cached once per (order, tj).
-      template <Integer order> static const NodeRuleData& SelfVRule(const Integer tj);
+      struct NodeRuleData { Vector<Real> param, w; Matrix<Real> M, dM, MT, dMT; };
+      // Preloaded composite/graded Alpert log-singular v-rule for self-interaction at
+      // v0=ParamNodes(order)[tj]; geometry-independent, cached once per (order, digits, tj).
+      // Grading levels toward v0 grow with `digits` (DigitsVLevels), so v-accuracy tracks tol.
+      template <Integer order, Integer digits> static const NodeRuleData& SelfVRule(const Integer tj);
 
       // Preloaded self-interaction graded u-rule for u0=ParamNodes(order)[ti]. The subdivision
       // is geometry-independent (scale-invariance), so fixed by (order, ti, digits) and cached once.
@@ -263,26 +271,37 @@ namespace sctl {
       template <Integer digits> static Integer DigitsQuadOrder();
       template <Integer digits> static Real DigitsBEllipse();
 
+      // Number of geometric grading levels (per side) toward v0 in the composite Alpert v-rule,
+      // as a function of requested accuracy. Runtime core + compile-time `digits` wrapper.
+      static Integer VLevelsForDigits(const Integer digits);
+      template <Integer digits> static Integer DigitsVLevels();
+
       // Accumulate a tensor-product quadrature (u_param x v_param, weights wu (x) wv) on
       // elem_idx against target Xtrg into M_acc; normal_trg != null enables target-normal contraction.
       // Mv_pre/dMv_pre, Mu_pre/dMu_pre (optional): precomputed v/u interp operators (order x N) used in
       // place of building from param (self supplies Alpert v; self-RP supplies both; near/Adaptive leave null).
-      template <Integer order, class Kernel> static void IntegrateBlock(Matrix<Real>& M_acc, const QuadElemList<Real>& qel, const Long elem_idx, const Vector<Real>& Xtrg, const Vector<Real>& normal_trg, const Vector<Real>& u_param, const Vector<Real>& wu, const Vector<Real>& v_param, const Vector<Real>& wv, const Kernel& ker, const Matrix<Real>* Mv_pre = nullptr, const Matrix<Real>* dMv_pre = nullptr, const Matrix<Real>* Mu_pre = nullptr, const Matrix<Real>* dMu_pre = nullptr);
+      template <Integer order, class Kernel> static void IntegrateBlock(Matrix<Real>& M_acc, const QuadElemList<Real>& qel, const Long elem_idx, 
+                                                                        const Vector<Real>& Xtrg, const Vector<Real>& normal_trg, 
+                                                                        const Vector<Real>& u_param, const Vector<Real>& wu, const Vector<Real>& v_param, const Vector<Real>& wv, const Kernel& ker, 
+                                                                        const Matrix<Real>* Mv_pre = nullptr, const Matrix<Real>* dMv_pre = nullptr, const Matrix<Real>* Mu_pre = nullptr, const Matrix<Real>* dMu_pre = nullptr,
+                                                                        const Matrix<Real>* MvT_pre = nullptr, const Matrix<Real>* MuT_pre = nullptr, const Matrix<Real>* dMuT_pre = nullptr);
 
       // Geometry-independent graded 1D GL rule on [0,1], refined toward `center` until
-      // admissible or max_depth. Returns nodes `param`, weights `w`.
-      static void BuildGraded1D(Vector<Real>& param, Vector<Real>& w, const Real center, const Real b_ellipse, const Vector<Real>& qnds, const Vector<Real>& qwts, const Integer max_depth);
+      // admissible or MAX_ADAPTIVE_DEPTH. Returns nodes `param`, weights `w`.
+      static void BuildGraded1D(Vector<Real>& param, Vector<Real>& w, const Real center, const Real b_ellipse, const Vector<Real>& qnds, const Vector<Real>& qwts);
 
       // Dyadic subdivision underlying BuildGraded1D: leaf segments ({a0,a1} each in `seg`) + depths.
-      static void BuildGraded1DSegments(Vector<Real>& seg, Vector<Long>& seg_depth, const Real center, const Real b_ellipse, const Integer max_depth);
+      static void BuildGraded1DSegments(Vector<Real>& seg, Vector<Long>& seg_depth, const Real center, const Real b_ellipse);
 
-      // Alpert hybrid Gauss-trapezoidal rule on [0,1] for a log singularity at interior v0;
-      // `order` snapped to a supported Alpert log order. Tables: alpert_quadr.cpp.
-      static void LogSingularQuad1D(Vector<Real>& param, Vector<Real>& w, const Real v0, const Integer order);
+      // Composite/graded Alpert rule on [0,1] for a log singularity at interior v0: split at
+      // v0, grade `Lvl` geometric panels per side toward v0. The v0-touching panel uses the
+      // Alpert log endpoint correction; smooth panels use a `QuadOrder` Gauss-Legendre rule.
+      // Tables: alpert_quadr.cpp.
+      static void LogSingularQuad1D(Vector<Real>& param, Vector<Real>& w, const Real v0, const Integer Lvl, const Integer QuadOrder);
 
       // Adaptive 2D quadtree underlying NearInteracBlock: leaf rectangles (4 reals {u0,u1,v0,v1}
       // each in `leaf_box`) + depths, graded toward the closest point to Xtrg. Shared with WriteNearInteracVTK.
-      static void BuildNearLeaves(Vector<Real>& leaf_box, Vector<Long>& leaf_depth, const QuadElemList<Real>& qel, const Long elem_idx, const Vector<Real>& Xtrg, const Real b_ellipse, const Integer max_depth);
+      static void BuildNearLeaves(Vector<Real>& leaf_box, Vector<Long>& leaf_depth, const QuadElemList<Real>& qel, const Long elem_idx, const Vector<Real>& Xtrg, const Real b_ellipse);
 
       // Accuracy/order-templated impls of NearInterac/SelfInterac: entry points dispatch runtime
       // order to compile-time `order` (switch {4..48}) and tolerance to `digits` (if-else), CSBQ-style.

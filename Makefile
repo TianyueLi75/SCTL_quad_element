@@ -20,10 +20,18 @@ endif
 
 CXXFLAGS += -DSCTL_GLOBAL_MEM_BUFF=0 # Global memory buffer size in MB
 
-CXXFLAGS += -DSCTL_PROFILE=5 -DSCTL_VERBOSE # Enable profiling
+CXXFLAGS += -DSCTL_PROFILE=25 -DSCTL_VERBOSE # Enable profiling
 CXXFLAGS += -DSCTL_SIG_HANDLER # Enable SCTL stack trace
 
 CXXFLAGS += -DSCTL_QUAD_T=__float128 # Enable quadruple precision
+
+# Opt-in phase timers for the quad-element self/near hot loops (bench-quad-interac).
+# Use `make BENCH=1 ...` -- do NOT pass CXXFLAGS+= on the command line, as that
+# overrides (not appends to) the flags assigned above.
+BENCH ?= 0
+ifeq ($(BENCH), 1)
+	CXXFLAGS += -DBENCH_QUAD
+endif
 
 #CXXFLAGS += -DSCTL_HAVE_MPI #use MPI
 
@@ -71,6 +79,7 @@ TARGET_BIN = \
        $(BINDIR)/test-tensor \
        $(BINDIR)/test-vec \
        $(BINDIR)/test-quad-elem \
+       $(BINDIR)/bench-quad-interac \
        $(BINDIR)/test-scratch-pool \
        $(BINDIR)/test-scratch-pool-perf \
 	   $(BINDIR)/unit-test-quad-element
@@ -80,6 +89,8 @@ TARGET_BIN = \
 all : $(TARGET_BIN)
 
 quad : $(BINDIR)/unit-test-quad-element
+
+bench : $(BINDIR)/bench-quad-interac
 
 $(BINDIR)/%: $(OBJDIR)/%.o
 	-@$(MKDIRS) $(dir $@)

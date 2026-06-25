@@ -427,8 +427,8 @@ template <class Real, class Kernel> void test_SelfInterac(const Kernel& ker, con
 // Friend shim forwarding to QuadElemList's private static helpers (must be in namespace sctl).
 namespace sctl {
 template <class Real> struct QuadElemTestAccess {
-    static void LogSingularQuad1D(Vector<Real>& param, Vector<Real>& w, const Real v0, const Integer order) {
-        QuadElemList<Real>::LogSingularQuad1D(param, w, v0, order);
+    static void LogSingularQuad1D(Vector<Real>& param, Vector<Real>& w, const Real v0, const Integer Lvl, const Integer QuadOrder) {
+        QuadElemList<Real>::LogSingularQuad1D(param, w, v0, Lvl, QuadOrder);
     }
     static void RectPolarNodes1D(Vector<Real>& nodes, Vector<Real>& wts, const Real alpha, const Integer q, const Vector<Real>& gl_nds, const Vector<Real>& gl_wts) {
         QuadElemList<Real>::RectPolarNodes1D(nodes, wts, alpha, q, gl_nds, gl_wts);
@@ -478,10 +478,10 @@ template <class Real> void test_RectPolarNodes1D() {
 // Closed forms from int_0^1 v^k log|v-a| dv.
 template <class Real> void test_LogSingularQuad1D() {
     const Real v0 = (Real)0.6;
-    const Integer order = 16; // requested correction order (rule snaps internally)
+    const Integer Lvl = 5, QuadOrder = 24; // grading levels per side + GL order on smooth panels
 
     Vector<Real> param, w;
-    QuadElemTestAccess<Real>::LogSingularQuad1D(param, w, v0, order);
+    QuadElemTestAccess<Real>::LogSingularQuad1D(param, w, v0, Lvl, QuadOrder);
 
     // Structural sanity: sizes match, nodes in (0,1), weights sum to 1.
     SCTL_ASSERT(param.Dim() == w.Dim());
@@ -576,8 +576,8 @@ template <class Real> void test_QuadNodeInterp() {
 
     // Alpert nodes in u and v forming the tensor-product target grid (node (a,b) at a*Nv + b).
     Vector<Real> u_param, v_param, wu, wv;
-    QuadElemTestAccess<Real>::LogSingularQuad1D(u_param, wu, (Real)0.3, order);
-    QuadElemTestAccess<Real>::LogSingularQuad1D(v_param, wv, (Real)0.6, order);
+    QuadElemTestAccess<Real>::LogSingularQuad1D(u_param, wu, (Real)0.3, /*Lvl*/ 4, /*QuadOrder*/ order);
+    QuadElemTestAccess<Real>::LogSingularQuad1D(v_param, wv, (Real)0.6, /*Lvl*/ 4, /*QuadOrder*/ order);
     const Long Nu = u_param.Dim(), Nv = v_param.Dim();
 
     // Lagrange weights from patch nodes to the Alpert nodes (as in IntegrateBlock).
