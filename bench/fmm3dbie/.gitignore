@@ -1,0 +1,7 @@
+# Prebuilt Fortran benchmark binary — kept in the working tree, not committed (GPFS quota).
+/aquad_lap_2021
+*.o
+*.mod
+
+# prini scratch output (fort.13, etc.) written at run time
+fort.*
